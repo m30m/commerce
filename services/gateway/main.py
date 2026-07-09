@@ -6,6 +6,7 @@ Kept deliberately thin: it does no data access of its own.
 import asyncio
 
 from fastapi import Body, HTTPException
+from fastapi.responses import Response
 
 from common import config
 from common.downstream import DownstreamClient
@@ -46,13 +47,16 @@ async def home(uid: int) -> dict:
 
 
 @app.get("/products/{pid}")
-async def product(pid: int) -> dict:
+async def product(pid: int) -> Response:
+    # Pure pass-through: stream the upstream bytes straight to the client
+    # instead of parsing JSON and re-serialising it.
     try:
-        return await downstream.get_json(
+        content, media_type = await downstream.get_raw(
             "product", f"{config.PRODUCT_URL}/products/{pid}"
         )
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail="product upstream failed") from exc
+    return Response(content=content, media_type=media_type)
 
 
 @app.post("/carts/{uid}/items")

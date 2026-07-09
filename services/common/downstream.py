@@ -29,7 +29,7 @@ class DownstreamClient:
         if self._client is not None:
             await self._client.aclose()
 
-    async def get_json(self, target: str, url: str, **kwargs: Any) -> Any:
+    async def _get(self, target: str, url: str, **kwargs: Any) -> httpx.Response:
         assert self._client is not None, "DownstreamClient.connect() not called"
         attempts = config.DOWNSTREAM_RETRIES + 1
         last_exc: Optional[Exception] = None
@@ -42,7 +42,7 @@ class DownstreamClient:
                 )
                 DOWNSTREAM_REQUESTS.labels(target, resp.status_code).inc()
                 resp.raise_for_status()
-                return resp.json()
+                return resp
             except Exception as exc:  # noqa: BLE001 - recorded and retried
                 DOWNSTREAM_DURATION.labels(target).observe(
                     time.perf_counter() - start
@@ -51,6 +51,16 @@ class DownstreamClient:
                 last_exc = exc
         assert last_exc is not None
         raise last_exc
+
+    async def get_json(self, target: str, url: str, **kwargs: Any) -> Any:
+        resp = await self._get(target, url, **kwargs)
+        return resp.json()
+
+    async def get_raw(self, target: str, url: str, **kwargs: Any) -> tuple[bytes, str]:
+        """Fetch a downstream response as raw bytes + content-type, skipping the
+        decode/re-encode round-trip for pure pass-through endpoints."""
+        resp = await self._get(target, url, **kwargs)
+        return resp.content, resp.headers.get("content-type", "application/json")
 
     async def post_json(self, target: str, url: str, json: Any = None, **kwargs: Any) -> Any:
         assert self._client is not None, "DownstreamClient.connect() not called"

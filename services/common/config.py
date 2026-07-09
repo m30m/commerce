@@ -45,5 +45,12 @@ DOWNSTREAM_RETRIES = _int("DOWNSTREAM_RETRIES", 0)
 # Event-loop lag sampler interval (seconds)
 LOOP_LAG_INTERVAL = _float("LOOP_LAG_INTERVAL", 0.25)
 
+# Access-log sampling. The per-request access log runs json.dumps + a blocking
+# stdout write on the event-loop thread, so at high RPS it is pure throughput
+# tax. Log 1 in every N successful (<400) requests; errors are always logged.
+# Default 1 keeps every request (unchanged behaviour); raise it (e.g. 20) to
+# trade log fidelity for loop time under load.
+ACCESS_LOG_SAMPLE_N = _int("ACCESS_LOG_SAMPLE_N", 1)
+
 # Logging
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")

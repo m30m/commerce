@@ -3,4 +3,5 @@ uvicorn[standard]==0.34.0
 asyncpg==0.30.0
 redis==5.2.1
 httpx==0.28.1
+orjson==3.10.12
 prometheus-client==0.21.1
