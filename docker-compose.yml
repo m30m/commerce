@@ -134,6 +134,35 @@ services:
     ports:
       - "9090:9090"
 
+  loki:
+    image: grafana/loki:3.3.2
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/loki-config.yml"]
+    volumes:
+      - ./observability/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - lokidata:/loki
+    ports:
+      - "3100:3100"
+
+  # Grafana Alloy: reads container logs from the docker socket and ships them
+  # to Loki. (Promtail's replacement — Promtail is now end-of-life.)
+  alloy:
+    image: grafana/alloy:v1.5.1
+    restart: unless-stopped
+    command:
+      - "run"
+      - "--server.http.listen-addr=0.0.0.0:12345"
+      - "--storage.path=/var/lib/alloy/data"
+      - "/etc/alloy/config.alloy"
+    volumes:
+      - ./observability/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - alloydata:/var/lib/alloy/data
+    ports:
+      - "12345:12345"
+    depends_on:
+      - loki
+
   grafana:
     image: grafana/grafana:11.3.0
     restart: unless-stopped
@@ -149,6 +178,7 @@ services:
       - "3000:3000"
     depends_on:
       - prometheus
+      - loki
 
   # --- Load generator ------------------------------------------------------
   loadgen:
@@ -171,3 +201,5 @@ services:
 
 volumes:
   pgdata:
+  lokidata:
+  alloydata:

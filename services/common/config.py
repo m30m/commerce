@@ -40,3 +40,6 @@ DOWNSTREAM_RETRIES = _int("DOWNSTREAM_RETRIES", 0)
 
 # Event-loop lag sampler interval (seconds)
 LOOP_LAG_INTERVAL = _float("LOOP_LAG_INTERVAL", 0.25)
+
+# Logging
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")

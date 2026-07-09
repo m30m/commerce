@@ -1,5 +1,6 @@
-"""FastAPI app factory with RED middleware, a /metrics endpoint and an
-event-loop lag sampler that runs for the lifetime of the process."""
+"""FastAPI app factory with RED middleware, a structured access log, a
+/metrics endpoint and an event-loop lag sampler that runs for the lifetime of
+the process."""
 import asyncio
 import contextlib
 import time
@@ -10,6 +11,7 @@ from fastapi.responses import PlainTextResponse, Response
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from . import config
+from .logging_config import configure_logging
 from .metrics import (
     EVENT_LOOP_LAG,
     HTTP_DURATION,
@@ -37,6 +39,8 @@ def create_app(
     startup: Hook = None,
     shutdown: Hook = None,
 ) -> FastAPI:
+    logger = configure_logging(service_name, config.LOG_LEVEL)
+
     @contextlib.asynccontextmanager
     async def lifespan(app: FastAPI):
         lag_task = asyncio.create_task(
@@ -74,6 +78,17 @@ def create_app(
             HTTP_IN_PROGRESS.dec()
             HTTP_DURATION.labels(request.method, endpoint).observe(elapsed)
             HTTP_REQUESTS.labels(request.method, endpoint, status).inc()
+            if endpoint not in ("/health", "/metrics"):
+                logger.info(
+                    "request",
+                    extra={
+                        "method": request.method,
+                        "path": endpoint,
+                        "status": status,
+                        "duration_ms": round(elapsed * 1000, 2),
+                        "client": request.client.host if request.client else None,
+                    },
+                )
 
     @app.get("/metrics")
     def metrics() -> Response:

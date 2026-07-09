@@ -27,7 +27,20 @@ the cart, recommendation, and product services and returns a combined view.
   errors, latency histograms) plus operational gauges: DB pool wait-time /
   in-use, event-loop lag, cache hit-rate, queue depth, and (via
   prometheus_client defaults) RSS + GC stats.
-- **Grafana** (`:3000`, anonymous viewer enabled) with RED and USE dashboards.
+- **Loki** (`:3100`) stores logs; **Grafana Alloy** (`:12345`) reads each
+  container's logs from the Docker socket, parses the JSON lines, and ships
+  them to Loki with `service` / `container` / `level` labels that line up with
+  the metric labels.
+- **Grafana** (`:3000`, anonymous viewer enabled) with RED, USE and Logs
+  dashboards, and both Prometheus and Loki datasources for Explore.
+
+### Logging
+
+Every service logs structured JSON to stdout (see
+`services/common/logging_config.py`): one object per line with `time`, `level`,
+`logger`, `service`, `message` plus structured fields (e.g. `method`, `path`,
+`status`, `duration_ms` on the request access log). This makes queries like
+`{service="cart"} | json | status>=500` work in Grafana.
 
 ## Metrics
 
@@ -64,6 +77,7 @@ Then:
 - Gateway:      http://localhost:8000/home/1
 - Prometheus:   http://localhost:9090
 - Grafana:      http://localhost:3000  (anonymous viewer, or admin/admin)
+- Logs:         Grafana → Dashboards → Logs, or Explore with the Loki datasource
 - Load output:  `docker compose logs -f loadgen`
 
 Tune the arrival rate in `.env` (`RPS`), and set `DURATION_S` to run the load
@@ -78,7 +92,7 @@ services/
   Dockerfile      one image, launched per-service via compose command
 db/init.sql       schema + seed (1000 products, 500 users, sample cart activity)
 load/             load generator
-observability/    prometheus config + grafana provisioning & dashboards
+observability/    prometheus, loki, alloy configs + grafana provisioning & dashboards
 docker-compose.yml
 .env              tunable settings
 ```

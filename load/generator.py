@@ -17,12 +17,47 @@ Latency percentiles are reported periodically from the client's perspective.
 """
 import asyncio
 import bisect
+import json
+import logging
 import os
 import random
+import sys
 import time
 from collections import deque
+from datetime import datetime, timezone
 
 import httpx
+
+
+class _JsonFormatter(logging.Formatter):
+    """Emit each record as a JSON line matching the services' log schema."""
+
+    _RESERVED = set(
+        vars(logging.LogRecord("", 0, "", 0, "", None, None)).keys()
+    ) | {"message", "asctime", "taskName"}
+
+    def format(self, record: logging.LogRecord) -> str:
+        payload = {
+            "time": datetime.fromtimestamp(
+                record.created, tz=timezone.utc
+            ).isoformat(),
+            "level": record.levelname,
+            "logger": record.name,
+            "service": "loadgen",
+            "message": record.getMessage(),
+        }
+        for key, value in record.__dict__.items():
+            if key not in self._RESERVED and not key.startswith("_"):
+                payload[key] = value
+        return json.dumps(payload, default=str)
+
+
+_handler = logging.StreamHandler(sys.stdout)
+_handler.setFormatter(_JsonFormatter())
+logging.basicConfig(level=logging.INFO, handlers=[_handler])
+# httpx logs one line per request at INFO; quiet it to avoid flooding.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logger = logging.getLogger("loadgen")
 
 GATEWAY_URL = os.getenv("GATEWAY_URL", "http://gateway:8000")
 RPS = float(os.getenv("RPS", "50"))
@@ -129,21 +164,34 @@ async def _reporter(started_at: float) -> None:
         elapsed = time.perf_counter() - started_at
         snap = stats.snapshot()
         phase = "warmup" if elapsed < WARMUP_S else "steady"
-        print(
-            f"[load] t={elapsed:6.1f}s phase={phase} rps={RPS:.0f} "
-            f"inflight={_inflight} total={snap['total']} errors={snap['errors']} "
-            f"drops={snap['drops']} p50={snap['p50_ms']}ms "
-            f"p95={snap['p95_ms']}ms p99={snap['p99_ms']}ms",
-            flush=True,
+        logger.info(
+            "load report",
+            extra={
+                "elapsed_s": round(elapsed, 1),
+                "phase": phase,
+                "rps": RPS,
+                "inflight": _inflight,
+                "total": snap["total"],
+                "errors": snap["errors"],
+                "drops": snap["drops"],
+                "p50_ms": snap["p50_ms"],
+                "p95_ms": snap["p95_ms"],
+                "p99_ms": snap["p99_ms"],
+            },
         )
 
 
 async def main() -> None:
     global _inflight
-    print(
-        f"[load] target={GATEWAY_URL} rps={RPS} read_frac={READ_FRACTION} "
-        f"zipf_s={ZIPF_S} duration={'inf' if DURATION_S == 0 else DURATION_S}",
-        flush=True,
+    logger.info(
+        "load starting",
+        extra={
+            "target": GATEWAY_URL,
+            "rps": RPS,
+            "read_fraction": READ_FRACTION,
+            "zipf_s": ZIPF_S,
+            "duration_s": DURATION_S or None,
+        },
     )
     interval = 1.0 / RPS
     async with httpx.AsyncClient(
@@ -170,7 +218,7 @@ async def main() -> None:
             # If sleep <= 0 we are behind schedule: keep firing immediately
             # (open-loop) rather than slowing the arrival process.
 
-        print(f"[load] finished: {stats.snapshot()}", flush=True)
+        logger.info("load finished", extra=stats.snapshot())
 
 
 if __name__ == "__main__":

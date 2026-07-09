@@ -7,12 +7,15 @@ worker's own event-loop lag / queue depth are observable.
 """
 import asyncio
 import contextlib
+import logging
 import os
 
 from common.cache import Cache
 from common.db import Database
 from common.instrumentation import create_app
 from common.metrics import QUEUE_DEPTH
+
+logger = logging.getLogger("worker")
 
 db = Database()
 cache = Cache()
@@ -51,8 +54,8 @@ async def _run_loop() -> None:
         try:
             await _refresh_trending()
             await _drain_tasks()
-        except Exception as exc:  # noqa: BLE001 - keep the loop alive
-            print(f"[worker] iteration failed: {exc}", flush=True)
+        except Exception:  # noqa: BLE001 - keep the loop alive
+            logger.exception("worker iteration failed")
         await asyncio.sleep(REFRESH_INTERVAL)
 
 
