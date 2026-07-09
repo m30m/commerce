@@ -128,6 +128,10 @@ products = ZipfSampler(NUM_PRODUCTS, ZIPF_S)
 users = ZipfSampler(NUM_USERS, ZIPF_S)
 stats = Stats()
 _inflight = 0
+# Worst schedule lag (seconds behind the fixed arrival schedule) seen since the
+# last report. Surfaced by the reporter so "the generator can't keep up" is
+# visible instead of silent.
+_max_lag = 0.0
 
 
 def _next_request() -> tuple[str, str, dict | None]:
@@ -159,30 +163,53 @@ async def _issue(client: httpx.AsyncClient, method: str, url: str, body: dict | 
 
 
 async def _reporter(started_at: float) -> None:
+    global _max_lag
     while True:
         await asyncio.sleep(REPORT_INTERVAL_S)
-        elapsed = time.perf_counter() - started_at
-        snap = stats.snapshot()
-        phase = "warmup" if elapsed < WARMUP_S else "steady"
-        logger.info(
-            "load report",
-            extra={
-                "elapsed_s": round(elapsed, 1),
-                "phase": phase,
-                "rps": RPS,
-                "inflight": _inflight,
-                "total": snap["total"],
-                "errors": snap["errors"],
-                "drops": snap["drops"],
-                "p50_ms": snap["p50_ms"],
-                "p95_ms": snap["p95_ms"],
-                "p99_ms": snap["p99_ms"],
-            },
-        )
+        try:
+            elapsed = time.perf_counter() - started_at
+            snap = stats.snapshot()
+            phase = "warmup" if elapsed < WARMUP_S else "steady"
+            lag = _max_lag
+            _max_lag = 0.0
+            # Effective RPS actually achieved this window (vs the requested RPS).
+            achieved = round(snap["total"] / elapsed, 1) if elapsed > 0 else 0.0
+            logger.info(
+                "load report",
+                extra={
+                    "elapsed_s": round(elapsed, 1),
+                    "phase": phase,
+                    "rps": RPS,
+                    "achieved_rps": achieved,
+                    "behind_s": round(lag, 3),
+                    "inflight": _inflight,
+                    "total": snap["total"],
+                    "errors": snap["errors"],
+                    "drops": snap["drops"],
+                    "p50_ms": snap["p50_ms"],
+                    "p95_ms": snap["p95_ms"],
+                    "p99_ms": snap["p99_ms"],
+                },
+            )
+            # Loud, throttled warning when we can't sustain the requested rate.
+            if lag > 1.0 or snap["drops"] > 0:
+                logger.warning(
+                    "load generator falling behind requested RPS",
+                    extra={
+                        "behind_s": round(lag, 3),
+                        "drops": snap["drops"],
+                        "inflight": _inflight,
+                        "requested_rps": RPS,
+                        "achieved_rps": achieved,
+                    },
+                )
+        except Exception:
+            # A crash in the reporter must never silently stop reporting.
+            logger.exception("reporter iteration failed")
 
 
 async def main() -> None:
-    global _inflight
+    global _inflight, _max_lag
     logger.info(
         "load starting",
         extra={
@@ -199,8 +226,16 @@ async def main() -> None:
         limits=httpx.Limits(max_connections=MAX_INFLIGHT, max_keepalive_connections=200),
     ) as client:
         started_at = time.perf_counter()
-        asyncio.create_task(_reporter(started_at))
         loop = asyncio.get_event_loop()
+        # Surface exceptions from detached tasks instead of asyncio swallowing
+        # them into "Task exception was never retrieved" noise (or nothing).
+        loop.set_exception_handler(
+            lambda _loop, ctx: logger.error(
+                "unhandled task exception",
+                extra={"detail": ctx.get("message", str(ctx.get("exception")))},
+            )
+        )
+        asyncio.create_task(_reporter(started_at))
         next_at = loop.time()
         while True:
             if DURATION_S and (time.perf_counter() - started_at) >= DURATION_S:
@@ -215,11 +250,24 @@ async def main() -> None:
             sleep = next_at - loop.time()
             if sleep > 0:
                 await asyncio.sleep(sleep)
-            # If sleep <= 0 we are behind schedule: keep firing immediately
-            # (open-loop) rather than slowing the arrival process.
+            else:
+                # Behind schedule (the server or our own CPU can't keep up). Stay
+                # open-loop and keep firing, but ALWAYS yield to the event loop —
+                # otherwise this tight loop starves the in-flight requests and the
+                # reporter, pinning the CPU at 100% with no output. That livelock
+                # is what looked like the generator "silently dying".
+                _max_lag = max(_max_lag, -sleep)
+                await asyncio.sleep(0)
 
         logger.info("load finished", extra=stats.snapshot())
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        pass
+    except Exception:
+        # Never exit silently: a fatal error must leave a log line behind.
+        logger.exception("load generator crashed")
+        raise
