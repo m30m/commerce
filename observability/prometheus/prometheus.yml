@@ -33,6 +33,15 @@ scrape_configs:
         labels:
           service: worker
 
+  - job_name: cadvisor
+    static_configs:
+      - targets: ["cadvisor:8080"]
+    metric_relabel_configs:
+      # line up with app metrics / Loki logs: compose service name -> `service`
+      - source_labels: [container_label_com_docker_compose_service]
+        target_label: service
+        regex: (.+)
+
   - job_name: prometheus
     static_configs:
       - targets: ["localhost:9090"]

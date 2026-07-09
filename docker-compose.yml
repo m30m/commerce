@@ -134,6 +134,29 @@ services:
     ports:
       - "9090:9090"
 
+  # Per-container CPU / memory / network / filesystem metrics — the no-k8s
+  # equivalent of what the kubelet's embedded cAdvisor exposes in Kubernetes.
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    restart: unless-stopped
+    privileged: true
+    command:
+      - "--docker_only=true"          # only report real containers, skip system cgroups
+      - "--housekeeping_interval=5s"  # match Prometheus scrape_interval
+    volumes:
+      - /:/rootfs:ro
+      # mount the socket file explicitly (same as the alloy service) — on Docker
+      # Desktop the host's /var/run/docker.sock is a symlink that won't resolve
+      # inside the container if you bind-mount the whole /var/run directory.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    devices:
+      - /dev/kmsg
+    ports:
+      - "8080:8080"
+
   loki:
     image: grafana/loki:3.3.2
     restart: unless-stopped
