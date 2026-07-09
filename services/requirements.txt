@@ -5,3 +5,8 @@ redis==5.2.1
 httpx==0.28.1
 orjson==3.10.12
 prometheus-client==0.21.1
+# Continuous + on-demand profiling. py-spy is an out-of-process sampling
+# profiler (supports Python 3.12); the pyspy sidecars run it continuously and
+# push folded stacks to Pyroscope, and you can also attach ad-hoc, e.g.
+# `docker compose exec gateway py-spy top --pid 1`. Needs SYS_PTRACE at runtime.
+py-spy==0.4.0

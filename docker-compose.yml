@@ -6,6 +6,10 @@ x-app-base: &app-base
     context: ./services
   image: eyebench-app:latest
   restart: unless-stopped
+  # Allow py-spy to attach to the in-container process (PID 1) for on-demand
+  # profiling, e.g. `docker compose exec gateway py-spy top --pid 1`.
+  cap_add:
+    - SYS_PTRACE
   environment: &app-env
     DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
     REDIS_URL: redis://redis:6379/0
@@ -20,6 +24,21 @@ x-app-base: &app-base
       condition: service_healthy
     redis:
       condition: service_healthy
+
+# Shared config for the py-spy profiling sidecars. Each concrete sidecar sets
+# its own `pid: "service:<name>"` (to share the target's process namespace),
+# PYROSCOPE_APP and SERVICE, and a depends_on for its target.
+x-pyspy-base: &pyspy-base
+  image: eyebench-app:latest        # reuse the app image; it ships py-spy
+  restart: unless-stopped
+  command: ["python", "-m", "common.pyspy_push"]
+  cap_add:
+    - SYS_PTRACE                     # required for py-spy to read the target's memory
+  environment: &pyspy-env
+    PYROSCOPE_SERVER_ADDRESS: http://pyroscope:4040
+    PYROSCOPE_SAMPLE_RATE: ${PYROSCOPE_SAMPLE_RATE}
+    PYSPY_INTERVAL: ${PYSPY_INTERVAL}
+    TARGET_PID: "1"
 
 services:
   # --- Backing stores ------------------------------------------------------
@@ -187,6 +206,76 @@ services:
     depends_on:
       - loki
 
+  # Grafana Pyroscope: continuous-profiling backend. Ingests folded stacks from
+  # the Pyroscope SDK running inside each app process and serves flame graphs to
+  # Grafana. 4040 is the ingest + query HTTP port.
+  pyroscope:
+    image: grafana/pyroscope:1.9.2
+    restart: unless-stopped
+    command: ["-target=all"]
+    volumes:
+      - pyroscopedata:/data
+    ports:
+      - "4040:4040"
+
+  # --- Profiling sidecars (py-spy -> Pyroscope) ----------------------------
+  # One per app service. Each joins its target's PID namespace and continuously
+  # records + ships folded stacks. Out-of-process, so no GIL cost on the target.
+  pyspy-gateway:
+    <<: *pyspy-base
+    pid: "service:gateway"
+    environment:
+      <<: *pyspy-env
+      PYROSCOPE_APP: eyebench.gateway
+      SERVICE: gateway
+    depends_on:
+      - pyroscope
+      - gateway
+
+  pyspy-product:
+    <<: *pyspy-base
+    pid: "service:product"
+    environment:
+      <<: *pyspy-env
+      PYROSCOPE_APP: eyebench.product
+      SERVICE: product
+    depends_on:
+      - pyroscope
+      - product
+
+  pyspy-cart:
+    <<: *pyspy-base
+    pid: "service:cart"
+    environment:
+      <<: *pyspy-env
+      PYROSCOPE_APP: eyebench.cart
+      SERVICE: cart
+    depends_on:
+      - pyroscope
+      - cart
+
+  pyspy-recommendation:
+    <<: *pyspy-base
+    pid: "service:recommendation"
+    environment:
+      <<: *pyspy-env
+      PYROSCOPE_APP: eyebench.recommendation
+      SERVICE: recommendation
+    depends_on:
+      - pyroscope
+      - recommendation
+
+  pyspy-worker:
+    <<: *pyspy-base
+    pid: "service:worker"
+    environment:
+      <<: *pyspy-env
+      PYROSCOPE_APP: eyebench.worker
+      SERVICE: worker
+    depends_on:
+      - pyroscope
+      - worker
+
   grafana:
     image: grafana/grafana:11.3.0
     restart: unless-stopped
@@ -203,6 +292,7 @@ services:
     depends_on:
       - prometheus
       - loki
+      - pyroscope
 
   # --- Load generator ------------------------------------------------------
   loadgen:
@@ -227,3 +317,4 @@ volumes:
   pgdata:
   lokidata:
   alloydata:
+  pyroscopedata:
