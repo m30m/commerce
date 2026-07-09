@@ -1,0 +1,38 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  - job_name: gateway
+    static_configs:
+      - targets: ["gateway:8000"]
+        labels:
+          service: gateway
+
+  - job_name: product
+    static_configs:
+      - targets: ["product:8001"]
+        labels:
+          service: product
+
+  - job_name: cart
+    static_configs:
+      - targets: ["cart:8002"]
+        labels:
+          service: cart
+
+  - job_name: recommendation
+    static_configs:
+      - targets: ["recommendation:8003"]
+        labels:
+          service: recommendation
+
+  - job_name: worker
+    static_configs:
+      - targets: ["worker:8004"]
+        labels:
+          service: worker
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
