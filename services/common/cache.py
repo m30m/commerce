@@ -38,5 +38,21 @@ class Cache:
         CACHE_REQUESTS.labels("hit").inc()
         return json.loads(value)
 
+    async def get_json_many(self, keys: list[str]) -> list[Optional[Any]]:
+        """Batched get_json; records one hit/miss per key so the cache hit-rate
+        signal stays accurate for callers that read many keys at once."""
+        if not keys:
+            return []
+        raw = await self.client.mget(keys)
+        out: list[Optional[Any]] = []
+        for value in raw:
+            if value is None:
+                CACHE_REQUESTS.labels("miss").inc()
+                out.append(None)
+            else:
+                CACHE_REQUESTS.labels("hit").inc()
+                out.append(json.loads(value))
+        return out
+
     async def set_json(self, key: str, value: Any, ttl: int) -> None:
         await self.client.set(key, json.dumps(value), ex=ttl)

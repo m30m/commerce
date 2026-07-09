@@ -36,6 +36,10 @@ RECOMMENDATION_URL = os.getenv("RECOMMENDATION_URL", "http://recommendation:8003
 
 # Outbound HTTP behaviour (timeout / retry knobs for downstream calls)
 DOWNSTREAM_TIMEOUT = _float("DOWNSTREAM_TIMEOUT", 2.0)
+# Separate, shorter budget for acquiring a slot from the connection pool so that
+# pool exhaustion fails fast (visible backpressure) instead of consuming the
+# full connect/read timeout while holding up the event loop.
+DOWNSTREAM_POOL_TIMEOUT = _float("DOWNSTREAM_POOL_TIMEOUT", 0.5)
 DOWNSTREAM_RETRIES = _int("DOWNSTREAM_RETRIES", 0)
 
 # Event-loop lag sampler interval (seconds)

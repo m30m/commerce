@@ -19,7 +19,9 @@ class DownstreamClient:
 
     async def connect(self) -> None:
         self._client = httpx.AsyncClient(
-            timeout=config.DOWNSTREAM_TIMEOUT,
+            timeout=httpx.Timeout(
+                config.DOWNSTREAM_TIMEOUT, pool=config.DOWNSTREAM_POOL_TIMEOUT
+            ),
             limits=httpx.Limits(max_connections=200, max_keepalive_connections=50),
         )
 

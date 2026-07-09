@@ -22,7 +22,7 @@ cache = Cache()
 
 TRENDING_KEY = "trending:products"
 TASK_QUEUE = "worker:tasks"
-REFRESH_INTERVAL = float(os.getenv("WORKER_REFRESH_INTERVAL", "5.0"))
+REFRESH_INTERVAL = int(os.getenv("WORKER_REFRESH_INTERVAL", "5"))
 
 _bg_task: asyncio.Task | None = None
 
