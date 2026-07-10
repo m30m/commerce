@@ -1,10 +1,10 @@
-FROM python:3.12-slim
+FROM golang:1.24-alpine AS build
+WORKDIR /src
+COPY go.mod ./
+RUN go mod download
+COPY main.go ./
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /loadgen .
 
-ENV PYTHONUNBUFFERED=1
-
-WORKDIR /app
-COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
-COPY generator.py ./
-
-CMD ["python", "generator.py"]
+FROM scratch
+COPY --from=build /loadgen /loadgen
+ENTRYPOINT ["/loadgen"]
