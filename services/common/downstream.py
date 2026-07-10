@@ -15,28 +15,52 @@ from .metrics import DOWNSTREAM_DURATION, DOWNSTREAM_REQUESTS
 
 class DownstreamClient:
     def __init__(self) -> None:
-        self._client: Optional[httpx.AsyncClient] = None
+        # One connection pool per downstream target rather than a single shared
+        # pool. httpcore assigns pending requests to connections by scanning the
+        # whole pool (O(pending * connections)) on every pool state change, and
+        # for each candidate it compares request/connection Origin. A single
+        # pool shared across product/cart/recommendation therefore makes every
+        # scan pay Origin-equality checks against connections belonging to other
+        # services. Splitting per target keeps each pool small and single-origin,
+        # so the scan is cheaper and never compares across services.
+        self._clients: dict[str, httpx.AsyncClient] = {}
+        self._connected = False
 
-    async def connect(self) -> None:
-        self._client = httpx.AsyncClient(
+    def _new_client(self) -> httpx.AsyncClient:
+        # keepalive == max_connections: no churn from connections above the
+        # keepalive ceiling being opened and immediately torn down under load,
+        # which would otherwise trigger extra pool-reassignment scans.
+        return httpx.AsyncClient(
             timeout=httpx.Timeout(
                 config.DOWNSTREAM_TIMEOUT, pool=config.DOWNSTREAM_POOL_TIMEOUT
             ),
-            limits=httpx.Limits(max_connections=200, max_keepalive_connections=50),
+            limits=httpx.Limits(max_connections=50, max_keepalive_connections=50),
         )
 
+    async def connect(self) -> None:
+        self._connected = True
+
+    def _client_for(self, target: str) -> httpx.AsyncClient:
+        client = self._clients.get(target)
+        if client is None:
+            client = self._new_client()
+            self._clients[target] = client
+        return client
+
     async def disconnect(self) -> None:
-        if self._client is not None:
-            await self._client.aclose()
+        for client in self._clients.values():
+            await client.aclose()
+        self._clients.clear()
 
     async def _get(self, target: str, url: str, **kwargs: Any) -> httpx.Response:
-        assert self._client is not None, "DownstreamClient.connect() not called"
+        assert self._connected, "DownstreamClient.connect() not called"
+        client = self._client_for(target)
         attempts = config.DOWNSTREAM_RETRIES + 1
         last_exc: Optional[Exception] = None
         for _ in range(attempts):
             start = time.perf_counter()
             try:
-                resp = await self._client.get(url, **kwargs)
+                resp = await client.get(url, **kwargs)
                 DOWNSTREAM_DURATION.labels(target).observe(
                     time.perf_counter() - start
                 )
@@ -63,10 +87,11 @@ class DownstreamClient:
         return resp.content, resp.headers.get("content-type", "application/json")
 
     async def post_json(self, target: str, url: str, json: Any = None, **kwargs: Any) -> Any:
-        assert self._client is not None, "DownstreamClient.connect() not called"
+        assert self._connected, "DownstreamClient.connect() not called"
+        client = self._client_for(target)
         start = time.perf_counter()
         try:
-            resp = await self._client.post(url, json=json, **kwargs)
+            resp = await client.post(url, json=json, **kwargs)
             DOWNSTREAM_DURATION.labels(target).observe(time.perf_counter() - start)
             DOWNSTREAM_REQUESTS.labels(target, resp.status_code).inc()
             resp.raise_for_status()

@@ -160,6 +160,12 @@ services:
     image: gcr.io/cadvisor/cadvisor:v0.49.1
     restart: unless-stopped
     privileged: true
+    # On a cgroup v2 host (all modern Linux) Docker places each container in its
+    # own *private* cgroup namespace, so by default cAdvisor only sees its own
+    # cgroup and reports zero sibling containers. Joining the host cgroup
+    # namespace lets it read every container's cgroup. Docker Desktop's VM does
+    # not hit this, which is why the old config appeared to work only on macOS.
+    cgroup: host
     command:
       - "--docker_only=true"          # only report real containers, skip system cgroups
       - "--housekeeping_interval=5s"  # match Prometheus scrape_interval
