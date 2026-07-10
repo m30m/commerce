@@ -1,0 +1,123 @@
+# Gateway: the service we scale. Horizontal scale-out (replicas) is the k8s
+# equivalent of `uvicorn --workers`, but each replica is its own pod/process —
+# so every replica is a *separate* Prometheus scrape target (no shared-registry
+# undercounting) and a *separate* profiling target. Run ONE uvicorn worker per
+# pod and let `replicas` provide the parallelism.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  namespace: eyebench
+  labels: { app: gateway }
+spec:
+  replicas: 4                     # scale-out knob: `kubectl -n eyebench scale deploy/gateway --replicas=N`
+  selector: { matchLabels: { app: gateway } }
+  template:
+    metadata:
+      labels: { app: gateway }
+    spec:
+      # Lets the py-spy sidecar see the uvicorn process in a shared PID
+      # namespace. PID 1 becomes the infra/pause container, so the app is NOT
+      # PID 1 here (unlike compose's `pid: service:gateway`); the sidecar
+      # discovers the real PID by cmdline below.
+      shareProcessNamespace: true
+      containers:
+        # --- the app -----------------------------------------------------
+        - name: gateway
+          image: eyebench-app:latest
+          imagePullPolicy: IfNotPresent
+          command: ["uvicorn", "gateway.main:app", "--host", "0.0.0.0", "--port", "8000"]
+          env:
+            - { name: SERVICE_NAME, value: gateway }
+          envFrom:
+            - configMapRef: { name: eyebench-config }
+            - secretRef: { name: eyebench-secrets }
+          ports: [{ name: http, containerPort: 8000 }]
+          readinessProbe:
+            httpGet: { path: /health, port: http }
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /health, port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests: { cpu: "500m", memory: "128Mi" }
+            # Deliberately NO cpu limit: a single asyncio event loop is one
+            # thread, and a CPU *limit* would let CFS throttle it in bursts,
+            # adding tail latency. Cap memory only; pace CPU via replica count.
+            limits: { memory: "256Mi" }
+        # --- py-spy -> Pyroscope sidecar --------------------------------
+        - name: pyspy
+          image: eyebench-app:latest        # reuse the app image; it ships py-spy
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            capabilities:
+              add: ["SYS_PTRACE"]           # py-spy reads the target's memory
+          env:
+            - { name: PYROSCOPE_SERVER_ADDRESS, value: "http://pyroscope:4040" }
+            - { name: PYROSCOPE_APP, value: "eyebench.gateway" }
+            - { name: SERVICE, value: "gateway" }
+            - { name: PYROSCOPE_SAMPLE_RATE, value: "100" }
+            - { name: PYSPY_INTERVAL, value: "10" }
+          # pyspy_push reads TARGET_PID at import. In a shared PID namespace the
+          # app pid is dynamic, so find it by cmdline (skipping our own pid) and
+          # hand it off. Falls back to 1 if not found within ~60s.
+          command: ["python", "-c"]
+          args:
+            - |
+              import os, time, runpy
+              me = os.getpid()
+              pid = None
+              for _ in range(60):
+                  for p in os.listdir('/proc'):
+                      if not p.isdigit() or int(p) == me:
+                          continue
+                      try:
+                          cl = open('/proc/%s/cmdline' % p, 'rb').read().decode('utf-8', 'ignore')
+                      except OSError:
+                          continue
+                      if 'gateway.main' in cl and 'pyspy_push' not in cl:
+                          pid = p
+                          break
+                  if pid:
+                      break
+                  time.sleep(1)
+              os.environ['TARGET_PID'] = pid or '1'
+              print('[pyspy] profiling pid %s' % os.environ['TARGET_PID'], flush=True)
+              runpy.run_module('common.pyspy_push', run_name='__main__')
+          resources:
+            requests: { cpu: "100m", memory: "64Mi" }
+            limits: { memory: "128Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway
+  namespace: eyebench
+  labels: { app: gateway }
+spec:
+  selector: { app: gateway }
+  ports:
+    - { name: http, port: 8000, targetPort: http }
+---
+# Requires the Prometheus Operator (e.g. kube-prometheus-stack). Because it
+# targets the Service's *endpoints*, each gateway pod is scraped individually —
+# this is what makes per-replica metrics correct under scale-out.
+#   sum(rate(http_requests_total{service="gateway"}[1m]))   # across all pods
+#   sum by (pod) (rate(http_requests_total{service="gateway"}[1m]))  # per pod
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: gateway
+  namespace: eyebench
+  labels: { app: gateway }
+spec:
+  selector:
+    matchLabels: { app: gateway }
+  namespaceSelector:
+    matchNames: ["eyebench"]
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 5s

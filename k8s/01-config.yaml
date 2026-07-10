@@ -1,0 +1,33 @@
+# Shared app configuration, mirroring .env / the compose `x-app-env` anchor.
+# Service-to-service URLs resolve through Kubernetes DNS (<service>.<ns>.svc),
+# and since the app defaults already use the bare service names (product, cart,
+# recommendation) they work unchanged in-cluster.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: eyebench-config
+  namespace: eyebench
+data:
+  REDIS_URL: "redis://redis:6379/0"
+  DB_POOL_MIN: "2"
+  DB_POOL_MAX: "20"
+  CACHE_TTL: "60"
+  DOWNSTREAM_TIMEOUT: "2.0"
+  DOWNSTREAM_RETRIES: "0"
+  ACCESS_LOG_SAMPLE_N: "20"
+  PRODUCT_URL: "http://product:8001"
+  CART_URL: "http://cart:8002"
+  RECOMMENDATION_URL: "http://recommendation:8003"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: eyebench-secrets
+  namespace: eyebench
+type: Opaque
+stringData:
+  POSTGRES_USER: "eyebench"
+  POSTGRES_PASSWORD: "eyebench"
+  POSTGRES_DB: "eyebench"
+  # Password-bearing, so it lives in the Secret rather than the ConfigMap.
+  DATABASE_URL: "postgresql://eyebench:eyebench@postgres:5432/eyebench"

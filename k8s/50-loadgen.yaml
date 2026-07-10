@@ -1,0 +1,34 @@
+# Load generator, aimed at the Ingress (not the gateway Service) so traffic is
+# L7-balanced across gateway replicas. The nginx ingress controller Service is
+# created by `minikube addons enable ingress` in the ingress-nginx namespace.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loadgen
+  namespace: eyebench
+  labels: { app: loadgen }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: loadgen } }
+  template:
+    metadata:
+      labels: { app: loadgen }
+    spec:
+      containers:
+        - name: loadgen
+          image: eyebench-loadgen:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            # -> Ingress controller. Host-less Ingress matches any Host header,
+            #    so the bare Service name the Go client sends is fine.
+            - { name: GATEWAY_URL, value: "http://ingress-nginx-controller.ingress-nginx.svc.cluster.local" }
+            - { name: RPS, value: "300" }
+            - { name: DURATION_S, value: "0" }
+            - { name: READ_FRACTION, value: "0.9" }
+            - { name: ZIPF_S, value: "1.1" }
+            - { name: NUM_PRODUCTS, value: "1000" }
+            - { name: NUM_USERS, value: "500" }
+            - { name: WARMUP_S, value: "10" }
+          resources:
+            requests: { cpu: "250m", memory: "64Mi" }
+            limits: { memory: "128Mi" }
