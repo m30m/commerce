@@ -34,6 +34,26 @@ the cart, recommendation, and product services and returns a combined view.
 - **Grafana** (`:3000`, anonymous viewer enabled) with RED, USE and Logs
   dashboards, and both Prometheus and Loki datasources for Explore.
 
+  cAdvisor v0.49.1 does not support Docker's containerd image-store
+  snapshotter (`google/cadvisor#3643`, still open) — with it enabled,
+  cAdvisor fails to resolve each container's read-write layer and reports no
+  container metrics at all. If `docker info` shows
+  `driver-type: io.containerd.snapshotter.v1`, disable it on the host via
+  `/etc/docker/daemon.json`:
+
+  ```json
+  {
+    "features": {
+      "containerd-snapshotter": false
+    }
+  }
+  ```
+
+  then `systemctl restart docker` and `docker compose up -d` to recreate the
+  stack under the classic `overlay2` graphdriver. This is a host-level Docker
+  daemon setting, not something `docker-compose.yml` can fix — it restarts
+  every container on the host.
+
 ### Logging
 
 Every service logs structured JSON to stdout (see
