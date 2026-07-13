@@ -63,8 +63,8 @@
     {
       "id": 3,
       "type": "timeseries",
-      "title": "Network throughput (rx up / tx down)",
-      "description": "cAdvisor per-pod network. Receive plotted positive, transmit negative, so each pod's in/out mirror around zero.",
+      "title": "Network throughput — node-wide (rx up / tx down)",
+      "description": "node-exporter per-interface. NOTE: minikube's kubelet cAdvisor exposes network only at the node root cgroup (no per-pod series), so this is node-wide, not per-pod. On a cluster where cAdvisor reports pod network, swap in `rate(container_network_receive_bytes_total{namespace=\"eyebench\", pod=~\"$pod\"}[1m])`. Receive positive, transmit negative.",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "fieldConfig": { "defaults": { "unit": "Bps" }, "overrides": [] },
@@ -72,14 +72,14 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (pod) (rate(container_network_receive_bytes_total{namespace=\"eyebench\", pod=~\"$pod\"}[1m]))",
-          "legendFormat": "{{pod}} rx"
+          "expr": "sum by (device) (rate(node_network_receive_bytes_total{device!~\"lo|veth.*|docker.*\"}[1m]))",
+          "legendFormat": "{{device}} rx"
         },
         {
           "refId": "B",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "-sum by (pod) (rate(container_network_transmit_bytes_total{namespace=\"eyebench\", pod=~\"$pod\"}[1m]))",
-          "legendFormat": "{{pod}} tx"
+          "expr": "-sum by (device) (rate(node_network_transmit_bytes_total{device!~\"lo|veth.*|docker.*\"}[1m]))",
+          "legendFormat": "{{device}} tx"
         }
       ]
     },

@@ -1,0 +1,177 @@
+{
+  "uid": "eyebench-node",
+  "title": "Node — CPU · Memory · Disk · Network",
+  "tags": ["eyebench", "k8s", "node"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5s",
+  "time": { "from": "now-15m", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "node",
+        "type": "query",
+        "label": "Node",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "query": "label_values(node_uname_info, instance)",
+        "refresh": 2,
+        "includeAll": true,
+        "allValue": ".+",
+        "multi": true,
+        "sort": 1,
+        "current": { "text": "All", "value": "$__all" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "CPU utilisation by state (stacked)",
+      "description": "node-exporter. Each mode's share of total CPU time, averaged across cores; stacked the bars fill to 100%. idle is the headroom.",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "custom": { "stacking": { "mode": "normal", "group": "A" }, "fillOpacity": 60, "showPoints": "never" }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "idle" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "dark-green" } }]
+          }
+        ]
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "avg by (mode) (rate(node_cpu_seconds_total{instance=~\"$node\"}[1m]))",
+          "legendFormat": "{{mode}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "CPU busy (non-idle)",
+      "description": "1 − idle, averaged across cores. The single-VM ceiling all pods share.",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1 }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "1 - avg by (instance) (rate(node_cpu_seconds_total{instance=~\"$node\", mode=\"idle\"}[1m]))",
+          "legendFormat": "{{instance}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Memory used vs total",
+      "description": "used = MemTotal − MemAvailable. Available (dashed) is what apps can still allocate before swapping/OOM.",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 9 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": { "unit": "bytes", "min": 0 },
+        "overrides": [
+          {
+            "matcher": { "id": "byRegexp", "options": ".*(total|available).*" },
+            "properties": [{ "id": "custom.lineStyle", "value": { "dash": [8, 8], "fill": "dash" } }, { "id": "custom.fillOpacity", "value": 0 }]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "node_memory_MemTotal_bytes{instance=~\"$node\"} - node_memory_MemAvailable_bytes{instance=~\"$node\"}",
+          "legendFormat": "{{instance}} used"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "node_memory_MemAvailable_bytes{instance=~\"$node\"}",
+          "legendFormat": "{{instance}} available"
+        },
+        {
+          "refId": "C",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "node_memory_MemTotal_bytes{instance=~\"$node\"}",
+          "legendFormat": "{{instance}} total"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Network throughput per interface (rx up / tx down)",
+      "description": "node-exporter. loopback and virtual (veth/docker) interfaces excluded.",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 9 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "Bps" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (device) (rate(node_network_receive_bytes_total{instance=~\"$node\", device!~\"lo|veth.*|docker.*\"}[1m]))",
+          "legendFormat": "{{device}} rx"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "-sum by (device) (rate(node_network_transmit_bytes_total{instance=~\"$node\", device!~\"lo|veth.*|docker.*\"}[1m]))",
+          "legendFormat": "{{device}} tx"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Disk IO per device (read up / write down)",
+      "description": "node-exporter. Throughput of the node's block devices.",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 18 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "Bps" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (device) (rate(node_disk_read_bytes_total{instance=~\"$node\"}[1m]))",
+          "legendFormat": "{{device}} read"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "-sum by (device) (rate(node_disk_written_bytes_total{instance=~\"$node\"}[1m]))",
+          "legendFormat": "{{device}} write"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Filesystem used % per mount",
+      "description": "node-exporter. tmpfs/overlay pseudo-filesystems excluded. Approaching 100% risks disk-full failures.",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 18 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "100 * (1 - node_filesystem_avail_bytes{instance=~\"$node\", fstype!~\"tmpfs|overlay|squashfs\"} / node_filesystem_size_bytes{instance=~\"$node\", fstype!~\"tmpfs|overlay|squashfs\"})",
+          "legendFormat": "{{mountpoint}}"
+        }
+      ]
+    }
+  ]
+}
