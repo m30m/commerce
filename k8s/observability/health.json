@@ -1,0 +1,110 @@
+{
+  "uid": "eyebench-health",
+  "title": "Pod / Deployment Health — CPU · Mem · Network · IO",
+  "tags": ["eyebench", "k8s", "health"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5s",
+  "time": { "from": "now-15m", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "pod",
+        "type": "query",
+        "label": "Pod",
+        "description": "Pick one pod, several, or All. Selecting every replica of one Deployment (they share a name prefix) gives the whole workload's view.",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "query": "label_values(container_cpu_usage_seconds_total{namespace=\"eyebench\", pod!=\"\"}, pod)",
+        "refresh": 2,
+        "includeAll": true,
+        "allValue": ".+",
+        "multi": true,
+        "sort": 1,
+        "current": { "text": "All", "value": "$__all" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "CPU cores",
+      "description": "cAdvisor via kubelet. Cores actually consumed, summed per pod.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "none", "min": 0 }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=\"eyebench\", pod=~\"$pod\"}[1m]))",
+          "legendFormat": "{{pod}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Memory working set",
+      "description": "cAdvisor working-set bytes (what the OOM killer watches), summed per pod.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "bytes", "min": 0 }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (pod) (container_memory_working_set_bytes{namespace=\"eyebench\", pod=~\"$pod\"})",
+          "legendFormat": "{{pod}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Network throughput (rx up / tx down)",
+      "description": "cAdvisor per-pod network. Receive plotted positive, transmit negative, so each pod's in/out mirror around zero.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "Bps" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (pod) (rate(container_network_receive_bytes_total{namespace=\"eyebench\", pod=~\"$pod\"}[1m]))",
+          "legendFormat": "{{pod}} rx"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "-sum by (pod) (rate(container_network_transmit_bytes_total{namespace=\"eyebench\", pod=~\"$pod\"}[1m]))",
+          "legendFormat": "{{pod}} tx"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Disk IO (read up / write down)",
+      "description": "cAdvisor container filesystem bytes. Reads positive, writes negative. May read near-zero on minikube's overlay fs — the app is not disk-bound.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "Bps" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (pod) (rate(container_fs_reads_bytes_total{namespace=\"eyebench\", pod=~\"$pod\"}[1m]))",
+          "legendFormat": "{{pod}} read"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "-sum by (pod) (rate(container_fs_writes_bytes_total{namespace=\"eyebench\", pod=~\"$pod\"}[1m]))",
+          "legendFormat": "{{pod}} write"
+        }
+      ]
+    }
+  ]
+}

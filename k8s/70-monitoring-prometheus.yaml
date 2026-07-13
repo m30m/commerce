@@ -1,0 +1,310 @@
+# Metrics plane, hand-rolled to replace kube-prometheus-stack. Three pieces, all
+# in `monitoring`:
+#   • kube-state-metrics — pod/deployment object state (restarts, ready, limits)
+#   • node-exporter      — the single minikube node's CPU/mem/disk (USE ceiling)
+#   • Prometheus         — scrapes all of the above + the kubelet's cAdvisor +
+#                          the eyebench app /metrics endpoints, 10-year retention
+#
+# No Prometheus Operator, so no ServiceMonitor/PodMonitor CRDs: Prometheus finds
+# its targets itself via kubernetes_sd_configs + relabeling (see the ConfigMap).
+# No Alertmanager — not wanted.
+# =========================================================================
+# kube-state-metrics
+# =========================================================================
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kube-state-metrics
+  namespace: monitoring
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kube-state-metrics
+rules:
+  - apiGroups: [""]
+    resources:
+      - configmaps
+      - secrets
+      - nodes
+      - pods
+      - services
+      - resourcequotas
+      - replicationcontrollers
+      - limitranges
+      - persistentvolumeclaims
+      - persistentvolumes
+      - namespaces
+      - endpoints
+    verbs: ["list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["statefulsets", "daemonsets", "deployments", "replicasets"]
+    verbs: ["list", "watch"]
+  - apiGroups: ["batch"]
+    resources: ["cronjobs", "jobs"]
+    verbs: ["list", "watch"]
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["list", "watch"]
+  - apiGroups: ["policy"]
+    resources: ["poddisruptionbudgets"]
+    verbs: ["list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kube-state-metrics
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kube-state-metrics
+subjects:
+  - kind: ServiceAccount
+    name: kube-state-metrics
+    namespace: monitoring
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kube-state-metrics
+  namespace: monitoring
+  labels: { app: kube-state-metrics }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: kube-state-metrics } }
+  template:
+    metadata:
+      labels: { app: kube-state-metrics }
+    spec:
+      serviceAccountName: kube-state-metrics
+      containers:
+        - name: kube-state-metrics
+          image: registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.14.0
+          ports:
+            - { name: http-metrics, containerPort: 8080 }
+            - { name: telemetry, containerPort: 8081 }
+          readinessProbe:
+            httpGet: { path: /readyz, port: telemetry }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kube-state-metrics
+  namespace: monitoring
+  labels: { app: kube-state-metrics }
+spec:
+  selector: { app: kube-state-metrics }
+  ports:
+    - { name: http-metrics, port: 8080, targetPort: http-metrics }
+    - { name: telemetry, port: 8081, targetPort: telemetry }
+# =========================================================================
+# node-exporter (DaemonSet — one per node; minikube has one)
+# =========================================================================
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: node-exporter
+  namespace: monitoring
+  labels: { app: node-exporter }
+spec:
+  selector: { matchLabels: { app: node-exporter } }
+  template:
+    metadata:
+      labels: { app: node-exporter }
+    spec:
+      hostNetwork: true          # so pod IP == node IP and :9100 is the node's
+      hostPID: true
+      tolerations:
+        - operator: Exists       # run on control-plane nodes too
+      containers:
+        - name: node-exporter
+          image: quay.io/prometheus/node-exporter:v1.8.2
+          args:
+            - "--path.rootfs=/host/root"
+            - "--path.procfs=/host/proc"
+            - "--path.sysfs=/host/sys"
+          ports: [{ name: metrics, containerPort: 9100 }]
+          volumeMounts:
+            - { name: proc, mountPath: /host/proc, readOnly: true }
+            - { name: sys, mountPath: /host/sys, readOnly: true }
+            - { name: root, mountPath: /host/root, mountPropagation: HostToContainer, readOnly: true }
+      volumes:
+        - { name: proc, hostPath: { path: /proc } }
+        - { name: sys, hostPath: { path: /sys } }
+        - { name: root, hostPath: { path: / } }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: node-exporter
+  namespace: monitoring
+  labels: { app: node-exporter }
+spec:
+  selector: { app: node-exporter }
+  ports:
+    - { name: metrics, port: 9100, targetPort: metrics }
+# =========================================================================
+# Prometheus
+# =========================================================================
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prometheus
+  namespace: monitoring
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: prometheus
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "nodes/proxy", "nodes/metrics", "services", "endpoints", "pods"]
+    verbs: ["get", "list", "watch"]
+  - nonResourceURLs: ["/metrics", "/metrics/cadvisor"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: prometheus
+subjects:
+  - kind: ServiceAccount
+    name: prometheus
+    namespace: monitoring
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: monitoring
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 5s          # matches the old ServiceMonitor interval
+      evaluation_interval: 15s
+
+    scrape_configs:
+      # --- Prometheus itself -------------------------------------------
+      - job_name: prometheus
+        static_configs:
+          - targets: ["localhost:9090"]
+
+      # --- kubelet cAdvisor (per-container CPU/mem/network/IO) ----------
+      # Scraped through the API server proxy so no per-node TLS/token juggling.
+      - job_name: kubelet-cadvisor
+        scrape_interval: 10s
+        scheme: https
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+          insecure_skip_verify: true
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        kubernetes_sd_configs:
+          - role: node
+        relabel_configs:
+          - action: labelmap
+            regex: __meta_kubernetes_node_label_(.+)
+          - target_label: __address__
+            replacement: kubernetes.default.svc:443
+          - source_labels: [__meta_kubernetes_node_name]
+            regex: (.+)
+            target_label: __metrics_path__
+            replacement: /api/v1/nodes/${1}/proxy/metrics/cadvisor
+
+      # --- kube-state-metrics (object state) ---------------------------
+      - job_name: kube-state-metrics
+        kubernetes_sd_configs:
+          - role: endpoints
+            namespaces: { names: ["monitoring"] }
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_label_app, __meta_kubernetes_endpoint_port_name]
+            regex: kube-state-metrics;http-metrics
+            action: keep
+
+      # --- node-exporter (node USE metrics) ----------------------------
+      - job_name: node-exporter
+        kubernetes_sd_configs:
+          - role: endpoints
+            namespaces: { names: ["monitoring"] }
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_label_app, __meta_kubernetes_endpoint_port_name]
+            regex: node-exporter;metrics
+            action: keep
+
+      # --- eyebench app services (RED metrics, per replica) ------------
+      # role: endpoints yields one target per pod behind each Service, so the
+      # 4 gateway replicas are scraped individually (correct per-replica RED).
+      - job_name: eyebench-apps
+        kubernetes_sd_configs:
+          - role: endpoints
+            namespaces: { names: ["eyebench"] }
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_label_app]
+            regex: gateway|product|cart|recommendation
+            action: keep
+          - source_labels: [__meta_kubernetes_endpoint_port_name]
+            regex: http
+            action: keep
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_service_label_app]
+            target_label: app
+        # (the app itself emits the `service` label on every metric, so RED/USE
+        # dashboards that group by `service` keep working unchanged)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: monitoring
+  labels: { app: prometheus }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: prometheus } }
+  template:
+    metadata:
+      labels: { app: prometheus }
+    spec:
+      serviceAccountName: prometheus
+      containers:
+        - name: prometheus
+          image: prom/prometheus:v2.55.1
+          args:
+            - "--config.file=/etc/prometheus/prometheus.yml"
+            - "--storage.tsdb.path=/prometheus"
+            # 10-year retention (no aging-out). Prometheus treats 0 as "use the
+            # 15d default", so retention-off is expressed as a very long window.
+            - "--storage.tsdb.retention.time=3650d"
+            - "--web.enable-lifecycle"
+          ports: [{ name: http, containerPort: 9090 }]
+          volumeMounts:
+            - { name: config, mountPath: /etc/prometheus }
+            - { name: data, mountPath: /prometheus }
+          readinessProbe:
+            httpGet: { path: /-/ready, port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+      volumes:
+        - name: config
+          configMap: { name: prometheus-config }
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: monitoring
+  labels: { app: prometheus }
+spec:
+  selector: { app: prometheus }
+  ports: [{ name: http, port: 9090, targetPort: http }]

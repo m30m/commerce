@@ -1,18 +1,24 @@
-# In-cluster observability backends ported from docker-compose:
+# Logs + profiles plane, all in the `monitoring` namespace:
 #   Loki (logs)  •  Pyroscope (profiles)  •  Alloy (log shipper)
-# Prometheus + Grafana come from the kube-prometheus-stack Helm release in the
-# `monitoring` namespace; these three run in `eyebench` so the gateway py-spy
-# sidecar can reach Pyroscope at the bare name `pyroscope:4040` (same namespace).
 #
-# cAdvisor is NOT ported: the kubelet already exposes cAdvisor metrics, which
-# kube-prometheus-stack scrapes — the Containers dashboard uses those.
+# These used to live in `eyebench`; they now sit next to Prometheus/Grafana in
+# `monitoring`. Cross-namespace callers therefore use fully-qualified DNS:
+#   - the gateway py-spy sidecar ships to  pyroscope.monitoring.svc:4040
+#   - Alloy writes to                       loki.monitoring.svc:3100
+#
+# Retention is set to 10 years everywhere (see below) — this is a benchmark
+# harness and we never want a datastore to age data out mid-analysis.
+#
+# Storage is still emptyDir, matching the rest of the stack (postgres/redis):
+# ephemeral by design. The 10-year retention governs *aging*, not durability —
+# swap in PVCs if you also need the data to survive a pod restart.
 ---
 # ----------------------------- Loki -------------------------------------
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: loki-config
-  namespace: eyebench
+  namespace: monitoring
 data:
   loki-config.yml: |
     # Minimal single-binary Loki using local filesystem storage. Not HA.
@@ -44,7 +50,8 @@ data:
     limits_config:
       allow_structured_metadata: true
       volume_enabled: true
-      retention_period: 72h
+      # 10 years — effectively "keep everything" for a benchmark run.
+      retention_period: 87600h
     compactor:
       working_directory: /loki/compactor
       delete_request_store: filesystem
@@ -54,7 +61,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: loki
-  namespace: eyebench
+  namespace: monitoring
   labels: { app: loki }
 spec:
   replicas: 1
@@ -85,7 +92,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: loki
-  namespace: eyebench
+  namespace: monitoring
   labels: { app: loki }
 spec:
   selector: { app: loki }
@@ -96,7 +103,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: pyroscope
-  namespace: eyebench
+  namespace: monitoring
   labels: { app: pyroscope }
 spec:
   replicas: 1
@@ -108,7 +115,11 @@ spec:
       containers:
         - name: pyroscope
           image: grafana/pyroscope:1.9.2
-          args: ["-target=all"]
+          args:
+            - "-target=all"
+            # 10-year block retention (default is 0 = infinite; set explicitly
+            # so the intent is visible and matches Loki/Prometheus).
+            - "-compactor.blocks-retention-period=87600h"
           ports: [{ name: http, containerPort: 4040 }]
           volumeMounts:
             - { name: data, mountPath: /data }
@@ -124,7 +135,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: pyroscope
-  namespace: eyebench
+  namespace: monitoring
   labels: { app: pyroscope }
 spec:
   selector: { app: pyroscope }
@@ -133,12 +144,13 @@ spec:
 # ----------------------------- Alloy ------------------------------------
 # Tails eyebench pod logs via the Kubernetes API and ships them to Loki.
 # Reads via the API server (pods/log), so a single replica is enough — no
-# DaemonSet/hostPath needed, and no risk of duplicate ingestion.
+# DaemonSet/hostPath needed, and no risk of duplicate ingestion. It runs in
+# `monitoring` but still discovers pods in the `eyebench` namespace.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: alloy
-  namespace: eyebench
+  namespace: monitoring
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -163,13 +175,13 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: alloy
-    namespace: eyebench
+    namespace: monitoring
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: alloy-config
-  namespace: eyebench
+  namespace: monitoring
 data:
   config.alloy: |
     // Discover eyebench pods, tail container logs via the Kubernetes API, parse
@@ -226,7 +238,7 @@ data:
 
     loki.write "default" {
       endpoint {
-        url = "http://loki.eyebench.svc:3100/loki/api/v1/push"
+        url = "http://loki.monitoring.svc:3100/loki/api/v1/push"
       }
     }
 ---
@@ -234,7 +246,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: alloy
-  namespace: eyebench
+  namespace: monitoring
   labels: { app: alloy }
 spec:
   replicas: 1
@@ -261,23 +273,3 @@ spec:
           configMap: { name: alloy-config }
         - name: data
           emptyDir: {}
----
-# ------------------- ServiceMonitors for the app services ----------------
-# gateway already has its own ServiceMonitor in 30-gateway.yaml. This adds the
-# other three so the RED/USE dashboards show every service, not just gateway.
-apiVersion: monitoring.coreos.com/v1
-kind: ServiceMonitor
-metadata:
-  name: app-services
-  namespace: eyebench
-  labels: { app: eyebench }
-spec:
-  selector:
-    matchExpressions:
-      - { key: app, operator: In, values: [product, cart, recommendation] }
-  namespaceSelector:
-    matchNames: ["eyebench"]
-  endpoints:
-    - port: http
-      path: /metrics
-      interval: 5s

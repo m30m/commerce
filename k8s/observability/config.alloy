@@ -75,6 +75,6 @@ loki.process "parse" {
 
 loki.write "default" {
 	endpoint {
-		url = "http://loki.eyebench.svc:3100/loki/api/v1/push"
+		url = "http://loki.monitoring.svc:3100/loki/api/v1/push"
 	}
 }

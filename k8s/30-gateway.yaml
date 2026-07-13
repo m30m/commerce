@@ -64,7 +64,9 @@ spec:
             capabilities:
               add: ["SYS_PTRACE"]           # py-spy reads the target's memory
           env:
-            - { name: PYROSCOPE_SERVER_ADDRESS, value: "http://pyroscope:4040" }
+            # Pyroscope now lives in the `monitoring` namespace, so address it
+            # by its cross-namespace DNS name rather than the bare service name.
+            - { name: PYROSCOPE_SERVER_ADDRESS, value: "http://pyroscope.monitoring.svc:4040" }
             - { name: PYROSCOPE_APP, value: "eyebench.gateway" }
             - { name: SERVICE, value: "gateway" }
             - { name: PYROSCOPE_SAMPLE_RATE, value: "100" }
@@ -92,24 +94,10 @@ spec:
   selector: { app: gateway }
   ports:
     - { name: http, port: 8000, targetPort: http }
----
-# Requires the Prometheus Operator (e.g. kube-prometheus-stack). Because it
-# targets the Service's *endpoints*, each gateway pod is scraped individually —
-# this is what makes per-replica metrics correct under scale-out.
-#   sum(rate(http_requests_total{service="gateway"}[1m]))   # across all pods
+# No ServiceMonitor here anymore: we dropped the Prometheus Operator along with
+# kube-prometheus-stack. Prometheus (k8s/70-monitoring-prometheus.yaml) now
+# discovers every eyebench app Service's endpoints directly via a
+# `kubernetes_sd_configs: {role: endpoints}` scrape job, so each gateway pod is
+# still scraped individually — per-replica metrics stay correct under scale-out.
+#   sum(rate(http_requests_total{service="gateway"}[1m]))            # all pods
 #   sum by (pod) (rate(http_requests_total{service="gateway"}[1m]))  # per pod
-apiVersion: monitoring.coreos.com/v1
-kind: ServiceMonitor
-metadata:
-  name: gateway
-  namespace: eyebench
-  labels: { app: gateway }
-spec:
-  selector:
-    matchLabels: { app: gateway }
-  namespaceSelector:
-    matchNames: ["eyebench"]
-  endpoints:
-    - port: http
-      path: /metrics
-      interval: 5s

@@ -23,36 +23,28 @@ the cart, recommendation, and product services and returns a combined view.
 
 ## Observability
 
+The stack runs on Kubernetes (minikube); see [`k8s/README.md`](k8s/README.md)
+for deployment. Observability lives in its own `monitoring` namespace:
+
 - **Prometheus** (`:9090`) scrapes RED metrics per service (request rate,
   errors, latency histograms) plus operational gauges: DB pool wait-time /
   in-use, event-loop lag, cache hit-rate, queue depth, and (via
-  prometheus_client defaults) RSS + GC stats.
-- **Loki** (`:3100`) stores logs; **Grafana Alloy** (`:12345`) reads each
-  container's logs from the Docker socket, parses the JSON lines, and ships
+  prometheus_client defaults) RSS + GC stats. Per-pod container CPU / memory /
+  network / IO come from the kubelet's cAdvisor; object state (restarts, ready,
+  limits) from kube-state-metrics; the node's USE ceiling from node-exporter.
+- **Loki** (`:3100`) stores logs; **Grafana Alloy** (`:12345`) tails each
+  eyebench pod's logs via the Kubernetes API, parses the JSON lines, and ships
   them to Loki with `service` / `container` / `level` labels that line up with
   the metric labels.
-- **Grafana** (`:3000`, anonymous viewer enabled) with RED, USE and Logs
-  dashboards, and both Prometheus and Loki datasources for Explore.
+- **Pyroscope** (`:4040`) stores continuous CPU profiles, fed by a py-spy
+  sidecar per app process.
+- **Grafana** (`:3000`, anonymous viewer enabled) with Pod/Deployment Health,
+  RED, USE, Pods, Logs and Profiling dashboards, and Prometheus / Loki /
+  Pyroscope datasources for Explore.
 
-  cAdvisor v0.49.1 does not support Docker's containerd image-store
-  snapshotter (`google/cadvisor#3643`, still open) — with it enabled,
-  cAdvisor fails to resolve each container's read-write layer and reports no
-  container metrics at all. If `docker info` shows
-  `driver-type: io.containerd.snapshotter.v1`, disable it on the host via
-  `/etc/docker/daemon.json`:
-
-  ```json
-  {
-    "features": {
-      "containerd-snapshotter": false
-    }
-  }
-  ```
-
-  then `systemctl restart docker` and `docker compose up -d` to recreate the
-  stack under the classic `overlay2` graphdriver. This is a host-level Docker
-  daemon setting, not something `docker-compose.yml` can fix — it restarts
-  every container on the host.
+Everything is deployed from plain manifests — no kube-prometheus-stack Helm
+release, no Prometheus Operator, no Alertmanager. All datastores are configured
+for 10-year retention.
 
 ### Logging
 
@@ -88,20 +80,29 @@ p50/p95/p99 every 10s.
 
 ## Running
 
+The stack runs on Kubernetes (minikube). Full steps — build images, deploy both
+namespaces, load dashboards, scale the gateway — are in
+[`k8s/README.md`](k8s/README.md). In brief:
+
 ```bash
-docker compose up --build
+minikube start --cpus=6 --memory=8g
+minikube addons enable ingress
+minikube image build -t eyebench-app:latest ./services
+minikube image build -t eyebench-loadgen:latest ./load
+kubectl apply -f k8s/00-namespace.yaml
+kubectl -n eyebench create configmap pg-init --from-file=db/init.sql
+kubectl apply -f k8s/
 ```
 
-Then:
+Then port-forward what you want to reach:
 
-- Gateway:      http://localhost:8000/home/1
-- Prometheus:   http://localhost:9090
-- Grafana:      http://localhost:3000  (anonymous viewer, or admin/admin)
-- Logs:         Grafana → Dashboards → Logs, or Explore with the Loki datasource
-- Load output:  `docker compose logs -f loadgen`
+```bash
+kubectl -n monitoring port-forward svc/grafana 3000:80      # Grafana (admin/admin)
+kubectl -n monitoring port-forward svc/prometheus 9090:9090 # Prometheus
+```
 
-Tune the arrival rate in `.env` (`RPS`), and set `DURATION_S` to run the load
-generator for a fixed duration instead of indefinitely.
+Tune the load generator via env in `k8s/50-loadgen.yaml` (`RPS`, `ZIPF_S`,
+`DURATION_S`, …).
 
 ## Layout
 
@@ -109,10 +110,10 @@ generator for a fixed duration instead of indefinitely.
 services/
   common/         shared code (metrics, db pool, cache, downstream client, app factory)
   gateway/ product/ cart/ recommendation/ worker/
-  Dockerfile      one image, launched per-service via compose command
+  Dockerfile      one image, launched per-service via the container command
 db/init.sql       schema + seed (1000 products, 500 users, sample cart activity)
 load/             load generator
-observability/    prometheus, loki, alloy configs + grafana provisioning & dashboards
-docker-compose.yml
+k8s/              Kubernetes manifests (app in `eyebench`, monitoring in `monitoring`)
+  observability/  Grafana dashboard JSON + the Alloy config reference
 .env              tunable settings
 ```
