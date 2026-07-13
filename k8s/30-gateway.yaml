@@ -33,14 +33,23 @@ spec:
             - configMapRef: { name: eyebench-config }
             - secretRef: { name: eyebench-secrets }
           ports: [{ name: http, containerPort: 8000 }]
+          # This is a single-threaded asyncio event loop: /health shares the loop
+          # with request handlers, so under load (plus an attached py-spy) a reply
+          # can lag several seconds even though the pod is healthy and serving 200s.
+          #
+          # No livenessProbe on purpose. Liveness must catch only unrecoverable
+          # deadlock — never overload. A liveness probe here just SIGTERMs busy pods
+          # (exit 143), removing capacity and concentrating load on the survivors
+          # until every replica crash-loops. Readiness alone handles overload: a
+          # saturated pod drops out of the Service endpoints and sheds traffic, then
+          # rejoins when it catches up — no restart. Timeout/threshold are loose so
+          # a brief loop stall doesn't flap it out of rotation.
           readinessProbe:
             httpGet: { path: /health, port: http }
             initialDelaySeconds: 3
             periodSeconds: 5
-          livenessProbe:
-            httpGet: { path: /health, port: http }
-            initialDelaySeconds: 10
-            periodSeconds: 10
+            timeoutSeconds: 8
+            failureThreshold: 5
           resources:
             requests: { cpu: "500m", memory: "128Mi" }
             # Deliberately NO cpu limit: a single asyncio event loop is one
@@ -60,32 +69,15 @@ spec:
             - { name: SERVICE, value: "gateway" }
             - { name: PYROSCOPE_SAMPLE_RATE, value: "100" }
             - { name: PYSPY_INTERVAL, value: "10" }
-          # pyspy_push reads TARGET_PID at import. In a shared PID namespace the
-          # app pid is dynamic, so find it by cmdline (skipping our own pid) and
-          # hand it off. Falls back to 1 if not found within ~60s.
-          command: ["python", "-c"]
-          args:
-            - |
-              import os, time, runpy
-              me = os.getpid()
-              pid = None
-              for _ in range(60):
-                  for p in os.listdir('/proc'):
-                      if not p.isdigit() or int(p) == me:
-                          continue
-                      try:
-                          cl = open('/proc/%s/cmdline' % p, 'rb').read().decode('utf-8', 'ignore')
-                      except OSError:
-                          continue
-                      if 'gateway.main' in cl and 'pyspy_push' not in cl:
-                          pid = p
-                          break
-                  if pid:
-                      break
-                  time.sleep(1)
-              os.environ['TARGET_PID'] = pid or '1'
-              print('[pyspy] profiling pid %s' % os.environ['TARGET_PID'], flush=True)
-              runpy.run_module('common.pyspy_push', run_name='__main__')
+            # Shared PID namespace: the app is not PID 1 and its pid can change,
+            # so pyspy_push re-discovers it by cmdline each cycle (self-healing)
+            # rather than capturing a single pid at startup.
+            - { name: TARGET_CMDLINE_MATCH, value: "gateway.main" }
+            # Stop-the-world sampling: py-spy 0.4.0 --nonblocking panics on this
+            # CPython 3.12 build ~1/3 of windows (losing them). The µs-scale pause
+            # per sample is a fair price for reliable flame graphs.
+            - { name: PYSPY_NONBLOCKING, value: "false" }
+          command: ["python", "-m", "common.pyspy_push"]
           resources:
             requests: { cpu: "100m", memory: "64Mi" }
             limits: { memory: "128Mi" }

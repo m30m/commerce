@@ -1,0 +1,283 @@
+# In-cluster observability backends ported from docker-compose:
+#   Loki (logs)  •  Pyroscope (profiles)  •  Alloy (log shipper)
+# Prometheus + Grafana come from the kube-prometheus-stack Helm release in the
+# `monitoring` namespace; these three run in `eyebench` so the gateway py-spy
+# sidecar can reach Pyroscope at the bare name `pyroscope:4040` (same namespace).
+#
+# cAdvisor is NOT ported: the kubelet already exposes cAdvisor metrics, which
+# kube-prometheus-stack scrapes — the Containers dashboard uses those.
+---
+# ----------------------------- Loki -------------------------------------
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: loki-config
+  namespace: eyebench
+data:
+  loki-config.yml: |
+    # Minimal single-binary Loki using local filesystem storage. Not HA.
+    auth_enabled: false
+    server:
+      http_listen_port: 3100
+      grpc_listen_port: 9096
+      log_level: warn
+    common:
+      instance_addr: 127.0.0.1
+      path_prefix: /loki
+      storage:
+        filesystem:
+          chunks_directory: /loki/chunks
+          rules_directory: /loki/rules
+      replication_factor: 1
+      ring:
+        kvstore:
+          store: inmemory
+    schema_config:
+      configs:
+        - from: 2024-01-01
+          store: tsdb
+          object_store: filesystem
+          schema: v13
+          index:
+            prefix: index_
+            period: 24h
+    limits_config:
+      allow_structured_metadata: true
+      volume_enabled: true
+      retention_period: 72h
+    compactor:
+      working_directory: /loki/compactor
+      delete_request_store: filesystem
+      retention_enabled: true
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loki
+  namespace: eyebench
+  labels: { app: loki }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: loki } }
+  template:
+    metadata:
+      labels: { app: loki }
+    spec:
+      containers:
+        - name: loki
+          image: grafana/loki:3.3.2
+          args: ["-config.file=/etc/loki/loki-config.yml"]
+          ports: [{ name: http, containerPort: 3100 }]
+          volumeMounts:
+            - { name: config, mountPath: /etc/loki }
+            - { name: data, mountPath: /loki }
+          readinessProbe:
+            httpGet: { path: /ready, port: http }
+            initialDelaySeconds: 15
+            periodSeconds: 10
+      volumes:
+        - name: config
+          configMap: { name: loki-config }
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: loki
+  namespace: eyebench
+  labels: { app: loki }
+spec:
+  selector: { app: loki }
+  ports: [{ name: http, port: 3100, targetPort: http }]
+---
+# --------------------------- Pyroscope ----------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pyroscope
+  namespace: eyebench
+  labels: { app: pyroscope }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: pyroscope } }
+  template:
+    metadata:
+      labels: { app: pyroscope }
+    spec:
+      containers:
+        - name: pyroscope
+          image: grafana/pyroscope:1.9.2
+          args: ["-target=all"]
+          ports: [{ name: http, containerPort: 4040 }]
+          volumeMounts:
+            - { name: data, mountPath: /data }
+          readinessProbe:
+            httpGet: { path: /ready, port: http }
+            initialDelaySeconds: 15
+            periodSeconds: 10
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pyroscope
+  namespace: eyebench
+  labels: { app: pyroscope }
+spec:
+  selector: { app: pyroscope }
+  ports: [{ name: http, port: 4040, targetPort: http }]
+---
+# ----------------------------- Alloy ------------------------------------
+# Tails eyebench pod logs via the Kubernetes API and ships them to Loki.
+# Reads via the API server (pods/log), so a single replica is enough — no
+# DaemonSet/hostPath needed, and no risk of duplicate ingestion.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: alloy
+  namespace: eyebench
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: eyebench-alloy
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "namespaces"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: eyebench-alloy
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: eyebench-alloy
+subjects:
+  - kind: ServiceAccount
+    name: alloy
+    namespace: eyebench
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alloy-config
+  namespace: eyebench
+data:
+  config.alloy: |
+    // Discover eyebench pods, tail container logs via the Kubernetes API, parse
+    // the JSON line, attach labels, push to Loki. Output labels match the compose
+    // shipper (job="docker", service, container, level) so the Logs dashboard,
+    // querying {job="docker", service=~"$service", level=~"$level"}, works as-is.
+    discovery.kubernetes "pods" {
+      role = "pod"
+    }
+
+    discovery.relabel "pods" {
+      targets = discovery.kubernetes.pods.targets
+      rule {
+        source_labels = ["__meta_kubernetes_namespace"]
+        regex         = "eyebench"
+        action        = "keep"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_label_app"]
+        target_label  = "service"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_container_name"]
+        target_label  = "container"
+      }
+      rule {
+        source_labels = ["__meta_kubernetes_pod_name"]
+        target_label  = "pod"
+      }
+      rule {
+        target_label = "job"
+        replacement  = "docker"
+      }
+    }
+
+    loki.source.kubernetes "pods" {
+      targets    = discovery.relabel.pods.output
+      forward_to = [loki.process.parse.receiver]
+    }
+
+    loki.process "parse" {
+      forward_to = [loki.write.default.receiver]
+      stage.json {
+        expressions = { level = "level" }
+      }
+      stage.template {
+        source   = "level"
+        template = "{{ ToLower .Value }}"
+      }
+      stage.labels {
+        values = { level = "" }
+      }
+    }
+
+    loki.write "default" {
+      endpoint {
+        url = "http://loki.eyebench.svc:3100/loki/api/v1/push"
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alloy
+  namespace: eyebench
+  labels: { app: alloy }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: alloy } }
+  template:
+    metadata:
+      labels: { app: alloy }
+    spec:
+      serviceAccountName: alloy
+      containers:
+        - name: alloy
+          image: grafana/alloy:v1.5.1
+          args:
+            - "run"
+            - "--server.http.listen-addr=0.0.0.0:12345"
+            - "--storage.path=/var/lib/alloy/data"
+            - "/etc/alloy/config.alloy"
+          ports: [{ name: http, containerPort: 12345 }]
+          volumeMounts:
+            - { name: config, mountPath: /etc/alloy }
+            - { name: data, mountPath: /var/lib/alloy/data }
+      volumes:
+        - name: config
+          configMap: { name: alloy-config }
+        - name: data
+          emptyDir: {}
+---
+# ------------------- ServiceMonitors for the app services ----------------
+# gateway already has its own ServiceMonitor in 30-gateway.yaml. This adds the
+# other three so the RED/USE dashboards show every service, not just gateway.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: app-services
+  namespace: eyebench
+  labels: { app: eyebench }
+spec:
+  selector:
+    matchExpressions:
+      - { key: app, operator: In, values: [product, cart, recommendation] }
+  namespaceSelector:
+    matchNames: ["eyebench"]
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 5s

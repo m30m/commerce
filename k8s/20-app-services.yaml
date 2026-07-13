@@ -37,6 +37,7 @@ kind: Service
 metadata:
   name: product
   namespace: eyebench
+  labels: { app: product }
 spec:
   selector: { app: product }
   ports: [{ name: http, port: 8001, targetPort: http }]
@@ -75,6 +76,7 @@ kind: Service
 metadata:
   name: cart
   namespace: eyebench
+  labels: { app: cart }
 spec:
   selector: { app: cart }
   ports: [{ name: http, port: 8002, targetPort: http }]
@@ -113,6 +115,7 @@ kind: Service
 metadata:
   name: recommendation
   namespace: eyebench
+  labels: { app: recommendation }
 spec:
   selector: { app: recommendation }
   ports: [{ name: http, port: 8003, targetPort: http }]

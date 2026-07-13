@@ -1,0 +1,80 @@
+// Grafana Alloy for Kubernetes: discover eyebench pods, tail their container
+// logs via the Kubernetes API, parse the JSON line, attach labels, push to Loki.
+//
+// This is the k8s port of the compose config.alloy. The docker-socket discovery
+// is replaced by discovery.kubernetes, but the OUTPUT labels are kept identical
+// (`job="docker"`, `service`, `container`, `level`) so the Logs dashboard, whose
+// query is `{job="docker", service=~"$service", level=~"$level"}`, works as-is.
+
+discovery.kubernetes "pods" {
+	role = "pod"
+}
+
+discovery.relabel "pods" {
+	targets = discovery.kubernetes.pods.targets
+
+	// only the eyebench namespace (mirrors the compose project scope)
+	rule {
+		source_labels = ["__meta_kubernetes_namespace"]
+		regex         = "eyebench"
+		action        = "keep"
+	}
+
+	// pod's `app` label -> `service` (lines up with Prometheus `service` label)
+	rule {
+		source_labels = ["__meta_kubernetes_pod_label_app"]
+		target_label  = "service"
+	}
+
+	// container name -> `container`
+	rule {
+		source_labels = ["__meta_kubernetes_pod_container_name"]
+		target_label  = "container"
+	}
+
+	// pod name -> `pod`
+	rule {
+		source_labels = ["__meta_kubernetes_pod_name"]
+		target_label  = "pod"
+	}
+
+	// keep the constant job label the dashboard queries by
+	rule {
+		target_label = "job"
+		replacement  = "docker"
+	}
+}
+
+loki.source.kubernetes "pods" {
+	targets    = discovery.relabel.pods.output
+	forward_to = [loki.process.parse.receiver]
+}
+
+// Parse the JSON log line and promote `level` to a queryable label, lowercased
+// to match Grafana's log-level colouring convention.
+loki.process "parse" {
+	forward_to = [loki.write.default.receiver]
+
+	stage.json {
+		expressions = {
+			level = "level",
+		}
+	}
+
+	stage.template {
+		source   = "level"
+		template = "{{ ToLower .Value }}"
+	}
+
+	stage.labels {
+		values = {
+			level = "",
+		}
+	}
+}
+
+loki.write "default" {
+	endpoint {
+		url = "http://loki.eyebench.svc:3100/loki/api/v1/push"
+	}
+}
