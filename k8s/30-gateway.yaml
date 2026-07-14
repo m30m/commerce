@@ -46,8 +46,8 @@ spec:
             timeoutSeconds: 8
             failureThreshold: 5
           resources:
-            requests: { cpu: "500m", memory: "128Mi" }
-            limits: { cpu: "500m", memory: "256Mi" }
+            requests: { cpu: "250m", memory: "128Mi" }
+            limits: { cpu: "250m", memory: "256Mi" }
 ---
 apiVersion: v1
 kind: Service
