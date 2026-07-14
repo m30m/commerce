@@ -2,3 +2,6 @@ __pycache__/
 *.pyc
 .env.local
 .DS_Store
+
+# Monitoring snapshot tarballs produced by scripts/snapshot-monitoring.sh
+/snapshots/

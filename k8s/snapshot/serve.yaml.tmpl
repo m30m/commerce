@@ -1,0 +1,321 @@
+# Static "serve a snapshot" plane, rendered into a fresh namespace by
+# scripts/serve-snapshot.sh (which substitutes ${SNAPSHOT_NS} and applies this).
+#
+# This is a trimmed clone of the live `monitoring` stack that ONLY serves frozen
+# data — it collects nothing:
+#   • Prometheus runs with NO scrape_configs (serves the restored TSDB only)
+#   • Loki has no Alloy shipping to it
+#   • Pyroscope receives no profiles (the eyebench py-spy sidecars target
+#     pyroscope.monitoring.svc, not this namespace)
+#   • kube-state-metrics / node-exporter / Alloy are omitted entirely
+#
+# Each datastore mounts a per-store PVC (loki-data / prometheus-data /
+# pyroscope-data) that the serve script pre-populates from the snapshot tarballs
+# BEFORE this manifest is applied. The PVCs and the namespace are created by the
+# script; everything else lives here.
+#
+# Only ${SNAPSHOT_NS} is substituted (envsubst '${SNAPSHOT_NS}'), so the $-refs
+# that Grafana/Prometheus configs might contain are left untouched.
+---
+# ----------------------------- Loki -------------------------------------
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: loki-config
+  namespace: ${SNAPSHOT_NS}
+data:
+  loki-config.yml: |
+    # Identical to the live stack. Retention stays at 10y so the compactor never
+    # ages out the restored chunks; nothing writes to it.
+    auth_enabled: false
+    server:
+      http_listen_port: 3100
+      grpc_listen_port: 9096
+      log_level: warn
+    common:
+      instance_addr: 127.0.0.1
+      path_prefix: /loki
+      storage:
+        filesystem:
+          chunks_directory: /loki/chunks
+          rules_directory: /loki/rules
+      replication_factor: 1
+      ring:
+        kvstore:
+          store: inmemory
+    schema_config:
+      configs:
+        - from: 2024-01-01
+          store: tsdb
+          object_store: filesystem
+          schema: v13
+          index:
+            prefix: index_
+            period: 24h
+    limits_config:
+      allow_structured_metadata: true
+      volume_enabled: true
+      retention_period: 87600h
+    compactor:
+      working_directory: /loki/compactor
+      delete_request_store: filesystem
+      retention_enabled: true
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loki
+  namespace: ${SNAPSHOT_NS}
+  labels: { app: loki }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: loki } }
+  strategy: { type: Recreate }   # RWO PVC: don't run two pods against it at once
+  template:
+    metadata:
+      labels: { app: loki }
+    spec:
+      containers:
+        - name: loki
+          image: grafana/loki:3.3.2
+          args: ["-config.file=/etc/loki/loki-config.yml"]
+          ports: [{ name: http, containerPort: 3100 }]
+          volumeMounts:
+            - { name: config, mountPath: /etc/loki }
+            - { name: data, mountPath: /loki }
+          readinessProbe:
+            httpGet: { path: /ready, port: http }
+            initialDelaySeconds: 15
+            periodSeconds: 10
+      volumes:
+        - name: config
+          configMap: { name: loki-config }
+        - name: data
+          persistentVolumeClaim: { claimName: loki-data }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: loki
+  namespace: ${SNAPSHOT_NS}
+  labels: { app: loki }
+spec:
+  selector: { app: loki }
+  ports: [{ name: http, port: 3100, targetPort: http }]
+---
+# --------------------------- Pyroscope ----------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pyroscope
+  namespace: ${SNAPSHOT_NS}
+  labels: { app: pyroscope }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: pyroscope } }
+  strategy: { type: Recreate }
+  template:
+    metadata:
+      labels: { app: pyroscope }
+    spec:
+      containers:
+        - name: pyroscope
+          image: grafana/pyroscope:1.9.2
+          args:
+            - "-target=all"
+            - "-compactor.blocks-retention-period=87600h"
+          ports: [{ name: http, containerPort: 4040 }]
+          volumeMounts:
+            - { name: data, mountPath: /data }
+          readinessProbe:
+            httpGet: { path: /ready, port: http }
+            initialDelaySeconds: 15
+            periodSeconds: 10
+      volumes:
+        - name: data
+          persistentVolumeClaim: { claimName: pyroscope-data }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pyroscope
+  namespace: ${SNAPSHOT_NS}
+  labels: { app: pyroscope }
+spec:
+  selector: { app: pyroscope }
+  ports: [{ name: http, port: 4040, targetPort: http }]
+---
+# ----------------------------- Prometheus -------------------------------
+# No RBAC / ServiceAccount and NO scrape_configs: this Prometheus discovers and
+# scrapes nothing, it only answers queries against the restored TSDB.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: ${SNAPSHOT_NS}
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 5s
+      evaluation_interval: 15s
+    # scrape_configs intentionally omitted — this instance serves a frozen
+    # snapshot and must not collect any new samples.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: ${SNAPSHOT_NS}
+  labels: { app: prometheus }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: prometheus } }
+  strategy: { type: Recreate }
+  template:
+    metadata:
+      labels: { app: prometheus }
+    spec:
+      containers:
+        - name: prometheus
+          image: prom/prometheus:v2.55.1
+          args:
+            - "--config.file=/etc/prometheus/prometheus.yml"
+            - "--storage.tsdb.path=/prometheus"
+            # 10-year retention so restored blocks are never aged out.
+            - "--storage.tsdb.retention.time=3650d"
+            - "--web.enable-lifecycle"
+          ports: [{ name: http, containerPort: 9090 }]
+          volumeMounts:
+            - { name: config, mountPath: /etc/prometheus }
+            - { name: data, mountPath: /prometheus }
+          readinessProbe:
+            httpGet: { path: /-/ready, port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+      volumes:
+        - name: config
+          configMap: { name: prometheus-config }
+        - name: data
+          persistentVolumeClaim: { claimName: prometheus-data }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: ${SNAPSHOT_NS}
+  labels: { app: prometheus }
+spec:
+  selector: { app: prometheus }
+  ports: [{ name: http, port: 9090, targetPort: http }]
+---
+# ----------------------------- Grafana ----------------------------------
+# Same provisioning as the live stack, but datasources point at the services in
+# THIS namespace. Dashboard JSON is loaded by the serve script as the
+# `eyebench-dashboards` ConfigMap (optional mount, re-scanned every 30s).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: grafana-admin
+  namespace: ${SNAPSHOT_NS}
+type: Opaque
+stringData:
+  admin-password: admin
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: ${SNAPSHOT_NS}
+data:
+  datasources.yml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        uid: prometheus
+        type: prometheus
+        access: proxy
+        url: http://prometheus.${SNAPSHOT_NS}.svc:9090
+        isDefault: true
+        editable: false
+      - name: Loki
+        uid: loki
+        type: loki
+        access: proxy
+        url: http://loki.${SNAPSHOT_NS}.svc:3100
+        editable: false
+      - name: Pyroscope
+        uid: pyroscope
+        type: grafana-pyroscope-datasource
+        access: proxy
+        url: http://pyroscope.${SNAPSHOT_NS}.svc:4040
+        editable: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-provider
+  namespace: ${SNAPSHOT_NS}
+data:
+  provider.yml: |
+    apiVersion: 1
+    providers:
+      - name: eyebench
+        orgId: 1
+        folder: eyebench
+        type: file
+        disableDeletion: false
+        updateIntervalSeconds: 30
+        allowUiUpdates: true
+        options:
+          path: /var/lib/grafana/dashboards
+          foldersFromFilesStructure: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: ${SNAPSHOT_NS}
+  labels: { app: grafana }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: grafana } }
+  template:
+    metadata:
+      labels: { app: grafana }
+    spec:
+      containers:
+        - name: grafana
+          image: grafana/grafana:11.3.0
+          env:
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: grafana-admin, key: admin-password }
+            - { name: GF_USERS_ALLOW_SIGN_UP, value: "false" }
+            - { name: GF_AUTH_ANONYMOUS_ENABLED, value: "true" }
+            - { name: GF_AUTH_ANONYMOUS_ORG_ROLE, value: "Viewer" }
+          ports: [{ name: http, containerPort: 3000 }]
+          volumeMounts:
+            - { name: datasources, mountPath: /etc/grafana/provisioning/datasources }
+            - { name: dashboard-provider, mountPath: /etc/grafana/provisioning/dashboards }
+            - { name: dashboards, mountPath: /var/lib/grafana/dashboards }
+          readinessProbe:
+            httpGet: { path: /api/health, port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+      volumes:
+        - name: datasources
+          configMap: { name: grafana-datasources }
+        - name: dashboard-provider
+          configMap: { name: grafana-dashboard-provider }
+        - name: dashboards
+          configMap: { name: eyebench-dashboards, optional: true }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: ${SNAPSHOT_NS}
+  labels: { app: grafana }
+spec:
+  selector: { app: grafana }
+  ports: [{ name: http, port: 80, targetPort: http }]
