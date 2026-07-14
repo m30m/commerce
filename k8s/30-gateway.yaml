@@ -47,7 +47,7 @@ spec:
             failureThreshold: 5
           resources:
             requests: { cpu: "500m", memory: "128Mi" }
-            limits: { cpu: "1", memory: "256Mi" }
+            limits: { cpu: "500m", memory: "256Mi" }
 ---
 apiVersion: v1
 kind: Service
