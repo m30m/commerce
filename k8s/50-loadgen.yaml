@@ -22,7 +22,7 @@ spec:
             # -> Ingress controller. Host-less Ingress matches any Host header,
             #    so the bare Service name the Go client sends is fine.
             - { name: GATEWAY_URL, value: "http://ingress-nginx-controller.ingress-nginx.svc.cluster.local" }
-            - { name: RPS, value: "50" }
+            - { name: RPS, value: "100" }
             - { name: DURATION_S, value: "0" }
             - { name: READ_FRACTION, value: "0.9" }
             - { name: ZIPF_S, value: "1.1" }
