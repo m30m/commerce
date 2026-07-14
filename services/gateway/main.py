@@ -57,13 +57,16 @@ app = create_app("gateway", startup=_startup, shutdown=_shutdown)
 @app.get("/home/{uid}")
 async def home(uid: int) -> dict:
     """Personalised home view aggregating three services."""
-    cart, recs = await asyncio.gather(
-        downstream.get_json("cart", f"{config.CART_URL}/carts/{uid}"),
-        downstream.get_json(
-            "recommendation", f"{config.RECOMMENDATION_URL}/recommendations/{uid}"
-        ),
-    )
-    featured = await _get_featured()
+    try:
+        cart, recs = await asyncio.gather(
+            downstream.get_json("cart", f"{config.CART_URL}/carts/{uid}"),
+            downstream.get_json(
+                "recommendation", f"{config.RECOMMENDATION_URL}/recommendations/{uid}"
+            ),
+        )
+        featured = await _get_featured()
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail="home upstream failed") from exc
     return {
         "user_id": uid,
         "cart": cart,
@@ -87,6 +90,9 @@ async def product(pid: int) -> Response:
 
 @app.post("/carts/{uid}/items")
 async def add_to_cart(uid: int, payload: dict = Body(...)) -> dict:
-    return await downstream.post_json(
-        "cart", f"{config.CART_URL}/carts/{uid}/items", json=payload
-    )
+    try:
+        return await downstream.post_json(
+            "cart", f"{config.CART_URL}/carts/{uid}/items", json=payload
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail="cart upstream failed") from exc
