@@ -5,8 +5,7 @@
 # data — it collects nothing:
 #   • Prometheus runs with NO scrape_configs (serves the restored TSDB only)
 #   • Loki has no Alloy shipping to it
-#   • Pyroscope receives no profiles (the eyebench py-spy sidecars target
-#     pyroscope.monitoring.svc, not this namespace)
+#   • Pyroscope receives no profiles (nothing ships to this namespace)
 #   • kube-state-metrics / node-exporter / Alloy are omitted entirely
 #
 # Each datastore mounts a per-store PVC (loki-data / prometheus-data /

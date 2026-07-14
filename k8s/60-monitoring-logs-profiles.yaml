@@ -3,8 +3,7 @@
 #
 # These used to live in `eyebench`; they now sit next to Prometheus/Grafana in
 # `monitoring`. Cross-namespace callers therefore use fully-qualified DNS:
-#   - the gateway py-spy sidecar ships to  pyroscope.monitoring.svc:4040
-#   - Alloy writes to                       loki.monitoring.svc:3100
+#   - Alloy writes to  loki.monitoring.svc:3100
 #
 # Retention is set to 10 years everywhere (see below) — this is a benchmark
 # harness and we never want a datastore to age data out mid-analysis.

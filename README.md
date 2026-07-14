@@ -36,8 +36,7 @@ for deployment. Observability lives in its own `monitoring` namespace:
   eyebench pod's logs via the Kubernetes API, parses the JSON lines, and ships
   them to Loki with `service` / `container` / `level` labels that line up with
   the metric labels.
-- **Pyroscope** (`:4040`) stores continuous CPU profiles, fed by a py-spy
-  sidecar per app process.
+- **Pyroscope** (`:4040`) stores continuous CPU profiles.
 - **Grafana** (`:3000`, anonymous viewer enabled) with Pod/Deployment Health,
   RED, USE, Pods, Logs and Profiling dashboards, and Prometheus / Loki /
   Pyroscope datasources for Explore.
