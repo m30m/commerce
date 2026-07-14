@@ -258,8 +258,8 @@ data:
             target_label: namespace
           - source_labels: [__meta_kubernetes_service_label_app]
             target_label: app
-        # (the app itself emits the `service` label on every metric, so RED/USE
-        # dashboards that group by `service` keep working unchanged)
+        # (the app metrics carry no `service` label, so this relabel provides the
+        # `app` label that the RED/USE dashboards group by)
 ---
 apiVersion: apps/v1
 kind: Deployment

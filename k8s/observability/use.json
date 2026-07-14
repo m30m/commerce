@@ -20,7 +20,7 @@
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "expr": "process_resident_memory_bytes",
-          "legendFormat": "{{service}}"
+          "legendFormat": "{{app}}"
         }
       ]
     },
@@ -36,7 +36,7 @@
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "expr": "event_loop_lag_seconds",
-          "legendFormat": "{{service}}"
+          "legendFormat": "{{app}}"
         }
       ]
     },
@@ -51,13 +51,13 @@
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "expr": "db_pool_in_use_connections",
-          "legendFormat": "{{service}} in-use"
+          "legendFormat": "{{app}} in-use"
         },
         {
           "refId": "B",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "expr": "db_pool_size",
-          "legendFormat": "{{service}} size"
+          "legendFormat": "{{app}} size"
         }
       ]
     },
@@ -72,8 +72,8 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "histogram_quantile(0.99, sum by (service, le) (rate(db_pool_wait_seconds_bucket[1m])))",
-          "legendFormat": "{{service}}"
+          "expr": "histogram_quantile(0.99, sum by (app, le) (rate(db_pool_wait_seconds_bucket[1m])))",
+          "legendFormat": "{{app}}"
         }
       ]
     },
@@ -88,8 +88,8 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (service) (rate(cache_requests_total{result=\"hit\"}[1m])) / sum by (service) (rate(cache_requests_total[1m]))",
-          "legendFormat": "{{service}}"
+          "expr": "sum by (app) (rate(cache_requests_total{result=\"hit\"}[1m])) / sum by (app) (rate(cache_requests_total[1m]))",
+          "legendFormat": "{{app}}"
         }
       ]
     },
@@ -104,7 +104,7 @@
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "expr": "http_requests_in_progress",
-          "legendFormat": "{{service}}"
+          "legendFormat": "{{app}}"
         }
       ]
     }

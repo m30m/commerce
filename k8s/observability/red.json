@@ -18,8 +18,8 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (service) (rate(http_requests_total[1m]))",
-          "legendFormat": "{{service}}"
+          "expr": "sum by (app) (rate(http_requests_total[1m]))",
+          "legendFormat": "{{app}}"
         }
       ]
     },
@@ -33,8 +33,8 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (service) (rate(http_requests_total{status=~\"5..\"}[1m]))",
-          "legendFormat": "{{service}}"
+          "expr": "sum by (app) (rate(http_requests_total{status=~\"5..\"}[1m]))",
+          "legendFormat": "{{app}}"
         }
       ]
     },
@@ -49,8 +49,8 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "histogram_quantile(0.50, sum by (service, le) (rate(http_request_duration_seconds_bucket[1m])))",
-          "legendFormat": "{{service}}"
+          "expr": "histogram_quantile(0.50, sum by (app, le) (rate(http_request_duration_seconds_bucket[1m])))",
+          "legendFormat": "{{app}}"
         }
       ]
     },
@@ -65,8 +65,8 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "histogram_quantile(0.95, sum by (service, le) (rate(http_request_duration_seconds_bucket[1m])))",
-          "legendFormat": "{{service}}"
+          "expr": "histogram_quantile(0.95, sum by (app, le) (rate(http_request_duration_seconds_bucket[1m])))",
+          "legendFormat": "{{app}}"
         }
       ]
     },
@@ -81,8 +81,8 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "histogram_quantile(0.99, sum by (service, le) (rate(http_request_duration_seconds_bucket[1m])))",
-          "legendFormat": "{{service}}"
+          "expr": "histogram_quantile(0.99, sum by (app, le) (rate(http_request_duration_seconds_bucket[1m])))",
+          "legendFormat": "{{app}}"
         }
       ]
     },
@@ -97,7 +97,7 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "histogram_quantile(0.95, sum by (method, endpoint, le) (rate(http_request_duration_seconds_bucket{service=\"gateway\"}[1m])))",
+          "expr": "histogram_quantile(0.95, sum by (method, endpoint, le) (rate(http_request_duration_seconds_bucket{app=\"gateway\"}[1m])))",
           "legendFormat": "{{method}} {{endpoint}}"
         }
       ]
@@ -113,7 +113,7 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "histogram_quantile(0.99, sum by (method, endpoint, le) (rate(http_request_duration_seconds_bucket{service=\"gateway\"}[1m])))",
+          "expr": "histogram_quantile(0.99, sum by (method, endpoint, le) (rate(http_request_duration_seconds_bucket{app=\"gateway\"}[1m])))",
           "legendFormat": "{{method}} {{endpoint}}"
         }
       ]
