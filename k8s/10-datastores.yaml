@@ -24,6 +24,9 @@ spec:
             - secretRef: { name: eyebench-secrets }
           ports:
             - { name: pg, containerPort: 5432 }
+          resources:
+            requests: { cpu: "250m", memory: "256Mi" }
+            limits: { cpu: "1", memory: "512Mi" }
           volumeMounts:
             - { name: initdb, mountPath: /docker-entrypoint-initdb.d, readOnly: true }
             - { name: data, mountPath: /var/lib/postgresql/data }
@@ -65,6 +68,9 @@ spec:
           image: redis:7-alpine
           ports:
             - { name: redis, containerPort: 6379 }
+          resources:
+            requests: { cpu: "100m", memory: "64Mi" }
+            limits: { cpu: "500m", memory: "256Mi" }
           readinessProbe:
             exec: { command: ["redis-cli", "ping"] }
             initialDelaySeconds: 2
