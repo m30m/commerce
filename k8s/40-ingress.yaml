@@ -1,14 +1,14 @@
-# Ingress between loadgen and the gateway.
+# Public entry point: L7 Ingress in front of the gateway.
 #
 # WHY: kube-proxy load-balances a ClusterIP Service at L4 (per *connection*).
-# The loadgen holds long-lived keepalive connections, so hitting the Service
-# directly would pin each connection to one gateway pod and skew load across
+# A client holding long-lived keepalive connections, hitting the Service
+# directly, would pin each connection to one gateway pod and skew load across
 # replicas. An L7 ingress terminates the client connection and balances each
 # *request* across the gateway endpoints (round-robin by default) while keeping
 # warm upstream keepalive connections to the pods — even spread + connection
 # reuse.
 #
-# No `host:` rule, so the controller routes purely on path and the loadgen can
+# No `host:` rule, so the controller routes purely on path and clients can
 # target the controller Service directly without DNS/Host-header juggling.
 #
 # Prereq (minikube):  minikube addons enable ingress

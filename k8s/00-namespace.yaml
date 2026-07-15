@@ -1,6 +1,6 @@
 # Two namespaces:
 #   eyebench    — the application under test (gateway, product, cart, …, plus
-#                 its Postgres/Redis and the loadgen).
+#                 its Postgres/Redis).
 #   monitoring  — the whole observability plane: Prometheus, Grafana,
 #                 kube-state-metrics, node-exporter, Loki, Pyroscope, Alloy.
 # Keeping them apart means "delete and redeploy the app" never touches the

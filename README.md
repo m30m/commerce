@@ -1,8 +1,7 @@
 # eyebench
 
 A small, read-heavy commerce API built as a set of async Python microservices,
-with a Prometheus + Grafana observability stack and a load generator for local
-performance testing.
+with a Prometheus + Grafana observability stack for local performance testing.
 
 ## Topology
 
@@ -68,15 +67,6 @@ Defined once in `services/common/metrics.py` and emitted by every service:
 | `process_resident_memory_bytes`    | resident memory                        |
 | `db_queries_total{op}`             | query counts per logical operation     |
 
-## Load generator
-
-`load/generator.py` drives traffic against the gateway. It uses an open-loop
-(constant arrival rate) model so throughput measurements aren't distorted when
-the system is under pressure, draws keys from a Zipfian distribution so hot-key
-and cache-eviction effects show up, and runs a read-heavy (~90/10) mix. Tune it
-via `.env` (`RPS`, `ZIPF_S`, `DURATION_S`, ...). It logs client-observed
-p50/p95/p99 every 10s.
-
 ## Running
 
 The stack runs on Kubernetes (minikube). Full steps — build images, deploy both
@@ -87,7 +77,6 @@ namespaces, load dashboards, scale the gateway — are in
 minikube start --cpus=6 --memory=8g
 minikube addons enable ingress
 minikube image build -t eyebench-app:latest ./services
-minikube image build -t eyebench-loadgen:latest ./load
 kubectl apply -f k8s/00-namespace.yaml
 kubectl -n eyebench create configmap pg-init --from-file=db/init.sql
 kubectl apply -f k8s/
@@ -100,9 +89,6 @@ kubectl -n monitoring port-forward svc/grafana 3000:80      # Grafana (admin/adm
 kubectl -n monitoring port-forward svc/prometheus 9090:9090 # Prometheus
 ```
 
-Tune the load generator via env in `k8s/50-loadgen.yaml` (`RPS`, `ZIPF_S`,
-`DURATION_S`, …).
-
 ## Layout
 
 ```
@@ -111,7 +97,6 @@ services/
   gateway/ product/ cart/ recommendation/ worker/
   Dockerfile      one image, launched per-service via the container command
 db/init.sql       schema + seed (1000 products, 500 users, sample cart activity)
-load/             load generator
 k8s/              Kubernetes manifests (app in `eyebench`, monitoring in `monitoring`)
   observability/  Grafana dashboard JSON + the Alloy config reference
 .env              tunable settings

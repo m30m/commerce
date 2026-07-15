@@ -6,7 +6,7 @@ plane in a dedicated `monitoring` namespace.
 
 | Namespace    | Contents |
 |--------------|----------|
-| `eyebench`   | app services (gateway ×N, product, cart, recommendation), Postgres, Redis, loadgen |
+| `eyebench`   | app services (gateway ×N, product, cart, recommendation), Postgres, Redis |
 | `monitoring` | Prometheus, Grafana, kube-state-metrics, node-exporter, Loki, Pyroscope, Alloy |
 
 The monitoring stack is plain manifests — no kube-prometheus-stack Helm release,
@@ -29,7 +29,6 @@ minikube addons enable metrics-server   # needed only if you add an HPA
 
 ```bash
 minikube image build -t eyebench-app:latest ./services
-minikube image build -t eyebench-loadgen:latest ./load
 ```
 
 ## 3. Deploy

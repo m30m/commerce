@@ -2,7 +2,7 @@
 # with a different uvicorn module + port, exactly like the compose commands.
 # Single replica each — they sit near-idle under this workload; the gateway is
 # the thing we scale. (worker follows the identical pattern on :8004 if you want
-# it; it is not on the loadgen request path so it is omitted here.)
+# it; it is not on the request path so it is omitted here.)
 apiVersion: apps/v1
 kind: Deployment
 metadata:
