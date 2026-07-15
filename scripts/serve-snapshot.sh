@@ -8,7 +8,8 @@
 #
 # Usage:
 #   scripts/serve-snapshot.sh <snapshot-name> <target-namespace> \
-#       [--in-dir ./snapshots] [--pvc-size 10Gi] [--storage-class NAME]
+#       [--in-dir ./snapshots] [--pvc-size 10Gi] [--storage-class NAME] \
+#       [--grafana-password PASSWORD]
 #
 # Teardown:  kubectl delete ns <target-namespace>
 set -euo pipefail
@@ -16,6 +17,7 @@ set -euo pipefail
 IN_DIR="./snapshots"
 PVC_SIZE="10Gi"
 STORAGE_CLASS=""
+GRAFANA_PASSWORD="admin"
 SNAPSHOT_NAME=""
 NS=""
 
@@ -30,6 +32,7 @@ while [[ $# -gt 0 ]]; do
     --in-dir)        IN_DIR="$2"; shift 2 ;;
     --pvc-size)      PVC_SIZE="$2"; shift 2 ;;
     --storage-class) STORAGE_CLASS="$2"; shift 2 ;;
+    --grafana-password) GRAFANA_PASSWORD="$2"; shift 2 ;;
     -h|--help)       usage 0 ;;
     -*)              echo "unknown flag: $1" >&2; usage 1 ;;
     *)
@@ -55,6 +58,11 @@ STORES=(
 
 echo ">> creating namespace '${NS}'"
 kubectl create namespace "$NS" --dry-run=client -o yaml | kubectl apply -f -
+
+# Grafana admin credentials (referenced by the Deployment in the template).
+kubectl -n "$NS" create secret generic grafana-admin \
+  --from-literal=admin-password="$GRAFANA_PASSWORD" \
+  --dry-run=client -o yaml | kubectl apply -f -
 
 # --- populate one PVC from a tarball via a throwaway loader pod --------------
 load_store() {
@@ -133,11 +141,17 @@ kubectl -n "$NS" create configmap eyebench-dashboards \
 echo ">> waiting for grafana to become ready"
 kubectl -n "$NS" rollout status deploy/grafana --timeout=180s || true
 
+if [[ "$GRAFANA_PASSWORD" == "admin" ]]; then
+  GRAFANA_PW_HINT="'admin' (default)"
+else
+  GRAFANA_PW_HINT="as passed via --grafana-password"
+fi
+
 cat <<EOF
 
 >> snapshot '${SNAPSHOT_NAME}' is now served from namespace '${NS}'.
 
-   Open Grafana (admin / admin):
+   Open Grafana (user 'admin', password ${GRAFANA_PW_HINT}):
      kubectl -n ${NS} port-forward svc/grafana 3000:80
    Prometheus (optional):
      kubectl -n ${NS} port-forward svc/prometheus 9090:9090

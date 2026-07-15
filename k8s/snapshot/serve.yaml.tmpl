@@ -168,15 +168,8 @@ spec:
 # Same provisioning as the live stack, but datasources point at the services in
 # THIS namespace. Dashboard JSON is loaded by the serve script as the
 # `eyebench-dashboards` ConfigMap (optional mount, re-scanned every 30s).
-apiVersion: v1
-kind: Secret
-metadata:
-  name: grafana-admin
-  namespace: ${SNAPSHOT_NS}
-type: Opaque
-stringData:
-  admin-password: admin
----
+# The `grafana-admin` Secret referenced below is created by the serve script
+# (--grafana-password, default "admin") before this manifest is applied.
 apiVersion: v1
 kind: ConfigMap
 metadata:

@@ -127,11 +127,16 @@ for entry in "${STORES[@]}"; do
 done
 
 # Manifest: what/when/where + sizes, for provenance.
+GIT_COMMIT="$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse HEAD 2>/dev/null || echo unknown)"
+if [[ "$GIT_COMMIT" != unknown && -n "$(git -C "$(dirname "${BASH_SOURCE[0]}")" status --porcelain 2>/dev/null)" ]]; then
+  GIT_COMMIT="${GIT_COMMIT}-dirty"
+fi
 {
   echo "snapshot:      ${SNAPSHOT_NAME}"
   echo "created:       $(date -u +%Y-%m-%dT%H:%M:%SZ)"
   echo "source_ns:     ${SRC_NS}"
   echo "kube_context:  $(kubectl config current-context 2>/dev/null || echo unknown)"
+  echo "git_commit:    ${GIT_COMMIT}"
   echo "files:"
   for entry in "${STORES[@]}"; do
     IFS='|' read -r store _ _ <<<"$entry"
