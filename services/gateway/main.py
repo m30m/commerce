@@ -88,6 +88,16 @@ async def product(pid: int) -> Response:
     return Response(content=content, media_type=media_type)
 
 
+@app.post("/products", status_code=201)
+async def create_product(payload: dict = Body(...)) -> dict:
+    try:
+        return await downstream.post_json(
+            "product", f"{config.PRODUCT_URL}/products", json=payload
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail="product upstream failed") from exc
+
+
 @app.post("/carts/{uid}/items")
 async def add_to_cart(uid: int, payload: dict = Body(...)) -> dict:
     try:

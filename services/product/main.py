@@ -1,5 +1,5 @@
 """product — cache-fronted read service (Redis in front of Postgres)."""
-from fastapi import HTTPException
+from fastapi import Body, HTTPException
 
 from common import config
 from common.cache import Cache
@@ -113,3 +113,34 @@ async def list_products(limit: int = 20, category: str | None = None) -> list[di
             limit,
         )
     return [_row_to_product(r) for r in rows]
+
+
+@app.post("/products", status_code=201)
+async def create_product(payload: dict = Body(...)) -> dict:
+    """Insert a new product and return the created row (including its id).
+
+    The catalog is otherwise read-only here; this write path exists so callers
+    can add products without touching Postgres directly.
+    """
+    try:
+        name = str(payload["name"])
+        price = float(payload["price"])
+        description = str(payload["description"])
+        category = str(payload["category"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="name, price, description and category are required",
+        ) from exc
+
+    row = await db.fetchrow(
+        "product_create",
+        "INSERT INTO products (name, price, description, category) "
+        "VALUES ($1, $2, $3, $4) "
+        "RETURNING id, name, price, description, category",
+        name,
+        price,
+        description,
+        category,
+    )
+    return _row_to_product(row)
