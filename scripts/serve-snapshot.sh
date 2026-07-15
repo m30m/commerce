@@ -2,7 +2,7 @@
 # Spin up a fresh, static namespace that SERVES a snapshot taken by
 # scripts/snapshot-monitoring.sh. It creates a PVC per datastore, populates each
 # from the snapshot tarballs (via a throwaway loader pod), then deploys a
-# self-contained Grafana + Loki + Prometheus + Pyroscope wired to those PVCs.
+# self-contained Grafana + Loki + Prometheus wired to those PVCs.
 # The serve namespace collects nothing (no scrapers, no Alloy, Prometheus has no
 # scrape_configs) — it only replays the frozen data.
 #
@@ -43,7 +43,7 @@ done
 [[ -f "$TEMPLATE" ]] || { echo "error: template not found: $TEMPLATE" >&2; exit 1; }
 
 SRC="${IN_DIR}/${SNAPSHOT_NAME}"
-for store in loki prometheus pyroscope; do
+for store in loki prometheus; do
   [[ -s "${SRC}/${store}.tar" ]] || { echo "error: missing/empty ${SRC}/${store}.tar (run snapshot-monitoring.sh first)" >&2; exit 1; }
 done
 
@@ -51,7 +51,6 @@ done
 STORES=(
   "loki|loki-data|/loki"
   "prometheus|prometheus-data|/prometheus"
-  "pyroscope|pyroscope-data|/data"
 )
 
 echo ">> creating namespace '${NS}'"

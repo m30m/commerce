@@ -15,6 +15,7 @@
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "options": { "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
         {
           "refId": "A",
@@ -31,6 +32,7 @@
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "options": { "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
         {
           "refId": "A",
@@ -46,6 +48,7 @@
       "title": "DB pool in-use vs size by service",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": { "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
         {
           "refId": "A",
@@ -68,6 +71,7 @@
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "options": { "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
         {
           "refId": "A",
@@ -84,6 +88,7 @@
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "fieldConfig": { "defaults": { "unit": "percentunit", "max": 1 }, "overrides": [] },
+      "options": { "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
         {
           "refId": "A",
@@ -99,6 +104,7 @@
       "title": "In-flight requests by service",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": { "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
         {
           "refId": "A",

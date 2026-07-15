@@ -1,0 +1,187 @@
+{
+  "uid": "eyebench-db",
+  "title": "DB — Query & Pool Latency",
+  "tags": ["eyebench", "db"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5s",
+  "time": { "from": "now-15m", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "app",
+        "type": "query",
+        "label": "App",
+        "description": "Filter to one or more services.",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "query": "label_values(db_query_duration_seconds_bucket, app)",
+        "refresh": 2,
+        "includeAll": true,
+        "allValue": ".+",
+        "multi": true,
+        "sort": 1,
+        "current": { "text": "All", "value": "$__all" }
+      },
+      {
+        "name": "op",
+        "type": "query",
+        "label": "Operation",
+        "description": "Filter to one or more logical DB operations (the `op` label on db_query_* metrics).",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "query": "label_values(db_query_duration_seconds_bucket{app=~\"$app\"}, op)",
+        "refresh": 2,
+        "includeAll": true,
+        "allValue": ".+",
+        "multi": true,
+        "sort": 1,
+        "current": { "text": "All", "value": "$__all" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Query latency p50 (s)",
+      "description": "histogram_quantile over db_query_duration_seconds — execution time only, excluding pool-acquire wait. One series per app · op.",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s", "min": 0 }, "overrides": [] },
+      "options": { "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "histogram_quantile(0.50, sum by (app, op, le) (rate(db_query_duration_seconds_bucket{app=~\"$app\", op=~\"$op\"}[1m])))",
+          "legendFormat": "{{app}} · {{op}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Query latency p95 (s)",
+      "description": "histogram_quantile over db_query_duration_seconds. One series per app · op.",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s", "min": 0 }, "overrides": [] },
+      "options": { "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "histogram_quantile(0.95, sum by (app, op, le) (rate(db_query_duration_seconds_bucket{app=~\"$app\", op=~\"$op\"}[1m])))",
+          "legendFormat": "{{app}} · {{op}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Query latency p99 (s)",
+      "description": "histogram_quantile over db_query_duration_seconds. One series per app · op.",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s", "min": 0 }, "overrides": [] },
+      "options": { "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "histogram_quantile(0.99, sum by (app, op, le) (rate(db_query_duration_seconds_bucket{app=~\"$app\", op=~\"$op\"}[1m])))",
+          "legendFormat": "{{app}} · {{op}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Query rate (queries/s) by op",
+      "description": "rate of db_queries_total, one series per app · op.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "qps", "min": 0 }, "overrides": [] },
+      "options": { "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (app, op) (rate(db_queries_total{app=~\"$app\", op=~\"$op\"}[1m]))",
+          "legendFormat": "{{app}} · {{op}}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Total query time per op (s/s)",
+      "description": "rate(db_query_duration_seconds_sum) — seconds of DB time spent per second, i.e. concurrency-weighted cost. High values point at the ops that dominate DB load, even when per-query latency looks fine. One series per app · op.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "none", "min": 0 }, "overrides": [] },
+      "options": { "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (app, op) (rate(db_query_duration_seconds_sum{app=~\"$app\", op=~\"$op\"}[1m]))",
+          "legendFormat": "{{app}} · {{op}}"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Pool acquire wait p99 by app (s)",
+      "description": "histogram_quantile over db_pool_wait_seconds — time blocked waiting for a free connection before the query even runs. This metric has no `op` label, so only the App filter applies. Rising wait means the pool is saturated (raise pool size or cut query time).",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s", "min": 0 }, "overrides": [] },
+      "options": { "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "histogram_quantile(0.99, sum by (app, le) (rate(db_pool_wait_seconds_bucket{app=~\"$app\"}[1m])))",
+          "legendFormat": "{{app}}"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Pool in-use vs size by app",
+      "description": "Connections checked out (in-use) against the configured pool size (dashed). In-use pinned at size is the cause of acquire wait. No `op` label — App filter only.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "min": 0 },
+        "overrides": [
+          {
+            "matcher": { "id": "byRegexp", "options": ".*size.*" },
+            "properties": [
+              { "id": "custom.lineStyle", "value": { "dash": [8, 8], "fill": "dash" } },
+              { "id": "custom.fillOpacity", "value": 0 }
+            ]
+          }
+        ]
+      },
+      "options": { "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "db_pool_in_use_connections{app=~\"$app\"}",
+          "legendFormat": "{{app}} in-use"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "db_pool_size{app=~\"$app\"}",
+          "legendFormat": "{{app}} size"
+        }
+      ]
+    }
+  ]
+}

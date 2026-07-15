@@ -4,7 +4,7 @@
   "tags": ["eyebench", "k8s", "health"],
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "refresh": "5s",
   "time": { "from": "now-15m", "to": "now" },
   "templating": {
@@ -34,6 +34,7 @@
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "fieldConfig": { "defaults": { "unit": "none", "min": 0 }, "overrides": [] },
+      "options": { "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
         {
           "refId": "A",
@@ -51,6 +52,7 @@
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "fieldConfig": { "defaults": { "unit": "bytes", "min": 0 }, "overrides": [] },
+      "options": { "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
         {
           "refId": "A",
@@ -68,6 +70,7 @@
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "fieldConfig": { "defaults": { "unit": "Bps" }, "overrides": [] },
+      "options": { "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
         {
           "refId": "A",
@@ -91,6 +94,7 @@
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "fieldConfig": { "defaults": { "unit": "Bps" }, "overrides": [] },
+      "options": { "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
         {
           "refId": "A",
@@ -103,6 +107,24 @@
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "expr": "-sum by (pod) (rate(container_fs_writes_bytes_total{namespace=\"eyebench\", pod=~\"$pod\"}[1m]))",
           "legendFormat": "{{pod}} write"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "CPU throttling (throttled periods / period)",
+      "description": "cAdvisor CFS throttling. Fraction of the kernel's CPU scheduler periods in which the container was throttled because it hit its CPU limit — `container_cpu_cfs_throttled_periods_total / container_cpu_cfs_periods_total`, summed per pod. Sustained values above ~0 mean the CPU limit is capping the workload even if average CPU looks low; raise the limit or reduce work. 1 = throttled in every period.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1 }, "overrides": [] },
+      "options": { "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (pod) (rate(container_cpu_cfs_throttled_periods_total{namespace=\"eyebench\", pod=~\"$pod\"}[1m])) / clamp_min(sum by (pod) (rate(container_cpu_cfs_periods_total{namespace=\"eyebench\", pod=~\"$pod\"}[1m])), 1)",
+          "legendFormat": "{{pod}}"
         }
       ]
     }

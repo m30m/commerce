@@ -8,7 +8,7 @@
 #   scripts/snapshot-monitoring.sh <snapshot-name> [--src-namespace monitoring] [--out-dir ./snapshots]
 #
 # Produces:
-#   <out-dir>/<snapshot-name>/{loki,prometheus,pyroscope}.tar
+#   <out-dir>/<snapshot-name>/{loki,prometheus}.tar
 #   <out-dir>/<snapshot-name>/manifest.txt
 #
 # Restore/serve a snapshot with scripts/serve-snapshot.sh.
@@ -38,7 +38,6 @@ done
 STORES=(
   "loki|app=loki|/loki"
   "prometheus|app=prometheus|/prometheus"
-  "pyroscope|app=pyroscope|/data"
 )
 
 DEST="${OUT_DIR}/${SNAPSHOT_NAME}"
@@ -62,11 +61,11 @@ check_tar_rc() {
 
 # Capture a store's data dir into $out. Fast path: run tar inside the container
 # (works when the image ships tar, e.g. Loki/Prometheus — no residue on the
-# source pod). Fallback for tar-less/distroless images (e.g. Pyroscope): attach a
-# short-lived busybox ephemeral container that joins the target container's
-# namespace and tars its filesystem via /proc/1/root. The ephemeral container is
-# in-pod and non-privileged; it lingers (Terminated) in the pod's status until
-# the pod restarts — the source app is unaffected.
+# source pod). Fallback for tar-less/distroless images: attach a short-lived
+# busybox ephemeral container that joins the target container's namespace and
+# tars its filesystem via /proc/1/root. The ephemeral container is in-pod and
+# non-privileged; it lingers (Terminated) in the pod's status until the pod
+# restarts — the source app is unaffected.
 capture_store() {
   local store="$1" pod="$2" root="$3" out="$4" rc
 

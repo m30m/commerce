@@ -2,9 +2,9 @@
 #   eyebench    — the application under test (gateway, product, cart, …, plus
 #                 its Postgres/Redis).
 #   monitoring  — the whole observability plane: Prometheus, Grafana,
-#                 kube-state-metrics, node-exporter, Loki, Pyroscope, Alloy.
+#                 kube-state-metrics, node-exporter, Loki, Alloy.
 # Keeping them apart means "delete and redeploy the app" never touches the
-# metrics/logs/profiles history, and vice-versa.
+# metrics/logs history, and vice-versa.
 apiVersion: v1
 kind: Namespace
 metadata:

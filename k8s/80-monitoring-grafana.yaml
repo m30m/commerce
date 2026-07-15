@@ -1,7 +1,7 @@
 # Grafana, provisioned by hand (the kube-prometheus-stack chart used to do this).
 # Three provisioning inputs, each a ConfigMap mounted read-only:
-#   1. datasources  — Prometheus (default) + Loki + Pyroscope, by the same uids
-#                     (`prometheus`/`loki`/`pyroscope`) the dashboards query by.
+#   1. datasources  — Prometheus (default) + Loki, by the same uids
+#                     (`prometheus`/`loki`) the dashboards query by.
 #   2. dashboard provider — tells Grafana to load every *.json under
 #                     /var/lib/grafana/dashboards.
 #   3. eyebench-dashboards — the actual dashboard JSON. Created from the files in
@@ -38,12 +38,6 @@ data:
         type: loki
         access: proxy
         url: http://loki.monitoring.svc:3100
-        editable: false
-      - name: Pyroscope
-        uid: pyroscope
-        type: grafana-pyroscope-datasource
-        access: proxy
-        url: http://pyroscope.monitoring.svc:4040
         editable: false
 ---
 apiVersion: v1

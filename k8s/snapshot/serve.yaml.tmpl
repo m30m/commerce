@@ -5,13 +5,12 @@
 # data — it collects nothing:
 #   • Prometheus runs with NO scrape_configs (serves the restored TSDB only)
 #   • Loki has no Alloy shipping to it
-#   • Pyroscope receives no profiles (nothing ships to this namespace)
 #   • kube-state-metrics / node-exporter / Alloy are omitted entirely
 #
-# Each datastore mounts a per-store PVC (loki-data / prometheus-data /
-# pyroscope-data) that the serve script pre-populates from the snapshot tarballs
-# BEFORE this manifest is applied. The PVCs and the namespace are created by the
-# script; everything else lives here.
+# Each datastore mounts a per-store PVC (loki-data / prometheus-data) that the
+# serve script pre-populates from the snapshot tarballs BEFORE this manifest is
+# applied. The PVCs and the namespace are created by the script; everything else
+# lives here.
 #
 # Only ${SNAPSHOT_NS} is substituted (envsubst '${SNAPSHOT_NS}'), so the $-refs
 # that Grafana/Prometheus configs might contain are left untouched.
@@ -101,48 +100,6 @@ metadata:
 spec:
   selector: { app: loki }
   ports: [{ name: http, port: 3100, targetPort: http }]
----
-# --------------------------- Pyroscope ----------------------------------
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: pyroscope
-  namespace: ${SNAPSHOT_NS}
-  labels: { app: pyroscope }
-spec:
-  replicas: 1
-  selector: { matchLabels: { app: pyroscope } }
-  strategy: { type: Recreate }
-  template:
-    metadata:
-      labels: { app: pyroscope }
-    spec:
-      containers:
-        - name: pyroscope
-          image: grafana/pyroscope:1.9.2
-          args:
-            - "-target=all"
-            - "-compactor.blocks-retention-period=87600h"
-          ports: [{ name: http, containerPort: 4040 }]
-          volumeMounts:
-            - { name: data, mountPath: /data }
-          readinessProbe:
-            httpGet: { path: /ready, port: http }
-            initialDelaySeconds: 15
-            periodSeconds: 10
-      volumes:
-        - name: data
-          persistentVolumeClaim: { claimName: pyroscope-data }
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: pyroscope
-  namespace: ${SNAPSHOT_NS}
-  labels: { app: pyroscope }
-spec:
-  selector: { app: pyroscope }
-  ports: [{ name: http, port: 4040, targetPort: http }]
 ---
 # ----------------------------- Prometheus -------------------------------
 # No RBAC / ServiceAccount and NO scrape_configs: this Prometheus discovers and
@@ -241,12 +198,6 @@ data:
         type: loki
         access: proxy
         url: http://loki.${SNAPSHOT_NS}.svc:3100
-        editable: false
-      - name: Pyroscope
-        uid: pyroscope
-        type: grafana-pyroscope-datasource
-        access: proxy
-        url: http://pyroscope.${SNAPSHOT_NS}.svc:4040
         editable: false
 ---
 apiVersion: v1

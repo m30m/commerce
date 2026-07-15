@@ -4,7 +4,7 @@
   "tags": ["eyebench", "logs"],
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "refresh": "10s",
   "time": { "from": "now-15m", "to": "now" },
   "templating": {
@@ -33,10 +33,44 @@
   },
   "panels": [
     {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Log volume (lines/s) by app — stacked",
+      "description": "Per-second log line rate from Loki, one series per app (`service` label), stacked so the total height is the overall log throughput. Honours the Service and Level filters above. A sudden spike — especially on level=error — is often the first visible sign of an incident.",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 0 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "logs/s",
+          "min": 0,
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "lineWidth": 0,
+            "stacking": { "mode": "normal", "group": "A" }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "desc" },
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "loki", "uid": "loki" },
+          "expr": "sum by (service) (rate({job=\"docker\", service=~\"$service\", level=~\"$level\"}[$__interval]))",
+          "legendFormat": "{{service}}",
+          "queryType": "range"
+        }
+      ]
+    },
+    {
       "id": 1,
       "type": "logs",
       "title": "Service logs",
-      "gridPos": { "h": 22, "w": 24, "x": 0, "y": 0 },
+      "gridPos": { "h": 22, "w": 24, "x": 0, "y": 8 },
       "datasource": { "type": "loki", "uid": "loki" },
       "options": {
         "showTime": true,

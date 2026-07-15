@@ -7,7 +7,7 @@ plane in a dedicated `monitoring` namespace.
 | Namespace    | Contents |
 |--------------|----------|
 | `eyebench`   | app services (gateway ×N, product, cart, recommendation), Postgres, Redis |
-| `monitoring` | Prometheus, Grafana, kube-state-metrics, node-exporter, Loki, Pyroscope, Alloy |
+| `monitoring` | Prometheus, Grafana, kube-state-metrics, node-exporter, Loki, Alloy |
 
 The monitoring stack is plain manifests — no kube-prometheus-stack Helm release,
 no Prometheus Operator (Prometheus discovers targets via `kubernetes_sd_configs`
@@ -57,8 +57,9 @@ kubectl -n monitoring create configmap eyebench-dashboards \
   --from-file=k8s/observability/red.json \
   --from-file=k8s/observability/use.json \
   --from-file=k8s/observability/pods.json \
-  --from-file=k8s/observability/logs.json \
-  --from-file=k8s/observability/profiling.json
+  --from-file=k8s/observability/db.json \
+  --from-file=k8s/observability/app.json \
+  --from-file=k8s/observability/logs.json
 ```
 
 To apply dashboard edits later, recreate it in place:
@@ -71,14 +72,18 @@ kubectl -n monitoring create configmap eyebench-dashboards \
 
 Dashboards (folder **eyebench** in Grafana):
 
-- **Pod / Deployment Health** — per-pod CPU / memory / disk IO with a pod
-  selector (one pod, several, or a whole Deployment's replicas). Network on this
-  view is node-wide: minikube's cAdvisor exposes no per-pod network series.
+- **Pod / Deployment Health** — per-pod CPU / memory / disk IO plus CPU
+  throttling, with a pod selector (one pod, several, or a whole Deployment's
+  replicas). Network on this view is node-wide: minikube's cAdvisor exposes no
+  per-pod network series.
 - **Node** — node-wide CPU (per state: idle/system/user/iowait/…), memory,
   disk IO, filesystem usage, and network per interface (node-exporter).
 - **RED** — rate / errors / duration. **USE** — utilisation / saturation.
-- **Pods** — per-pod CPU/mem/restarts/ready. **Logs** — Loki.
-  **Profiling** — Pyroscope flame graphs.
+- **DB** — DB query & pool latency, filterable by app and op.
+- **App** — single-service deep dive (pick an app): serving, downstream, DB
+  latencies and logs on one page.
+- **Pods** — per-pod CPU/mem/restarts/ready. **Logs** — Loki, with a stacked
+  per-app log-rate bar chart.
 
 ## 5. Open Grafana
 
@@ -103,7 +108,7 @@ sum by (pod) (rate(http_requests_total{service="gateway"}[1m]))
 
 ## 7. Snapshot a run and serve it statically
 
-Freeze the metrics/logs/profiles from a benchmark run and re-open them later in a
+Freeze the metrics/logs from a benchmark run and re-open them later in a
 throwaway namespace, without keeping the live stack scraping. Two scripts, run
 from the repo root:
 
@@ -120,9 +125,9 @@ kubectl -n mon-run1 port-forward svc/grafana 3000:80   # admin / admin
 ```
 
 The serve namespace (`mon-run1` above) is a trimmed clone of `monitoring`
-(Grafana + Loki + Prometheus + Pyroscope) that **collects nothing**: Prometheus
-runs with no `scrape_configs`, and kube-state-metrics / node-exporter / Alloy are
-omitted. Each datastore mounts a PVC that the serve script pre-populates from the
+(Grafana + Loki + Prometheus) that **collects nothing**: Prometheus runs with no
+`scrape_configs`, and kube-state-metrics / node-exporter / Alloy are omitted.
+Each datastore mounts a PVC that the serve script pre-populates from the
 snapshot tarballs, so the data is durable and the dashboards work unchanged.
 
 Snapshots are independent: different `<name>` and target namespace can coexist.
@@ -135,8 +140,8 @@ kubectl delete ns mon-run1
 Notes:
 
 - `snapshot-monitoring.sh` runs `tar` inside each datastore container when the
-  image ships it (Loki, Prometheus — no residue on the source pod). For the
-  distroless Pyroscope image it falls back to a short-lived, non-privileged
+  image ships it (Loki, Prometheus — no residue on the source pod). For a
+  tar-less/distroless image it falls back to a short-lived, non-privileged
   `kubectl debug` ephemeral container that tars the data via `/proc/1/root`; it
   self-terminates and leaves the source app running.
 - Flags: `--src-namespace` / `--out-dir` (capture); `--in-dir` / `--pvc-size` /

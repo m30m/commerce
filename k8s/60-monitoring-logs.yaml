@@ -1,5 +1,5 @@
-# Logs + profiles plane, all in the `monitoring` namespace:
-#   Loki (logs)  •  Pyroscope (profiles)  •  Alloy (log shipper)
+# Logs plane, all in the `monitoring` namespace:
+#   Loki (logs)  •  Alloy (log shipper)
 #
 # These used to live in `eyebench`; they now sit next to Prometheus/Grafana in
 # `monitoring`. Cross-namespace callers therefore use fully-qualified DNS:
@@ -96,49 +96,6 @@ metadata:
 spec:
   selector: { app: loki }
   ports: [{ name: http, port: 3100, targetPort: http }]
----
-# --------------------------- Pyroscope ----------------------------------
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: pyroscope
-  namespace: monitoring
-  labels: { app: pyroscope }
-spec:
-  replicas: 1
-  selector: { matchLabels: { app: pyroscope } }
-  template:
-    metadata:
-      labels: { app: pyroscope }
-    spec:
-      containers:
-        - name: pyroscope
-          image: grafana/pyroscope:1.9.2
-          args:
-            - "-target=all"
-            # 10-year block retention (default is 0 = infinite; set explicitly
-            # so the intent is visible and matches Loki/Prometheus).
-            - "-compactor.blocks-retention-period=87600h"
-          ports: [{ name: http, containerPort: 4040 }]
-          volumeMounts:
-            - { name: data, mountPath: /data }
-          readinessProbe:
-            httpGet: { path: /ready, port: http }
-            initialDelaySeconds: 15
-            periodSeconds: 10
-      volumes:
-        - name: data
-          emptyDir: {}
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: pyroscope
-  namespace: monitoring
-  labels: { app: pyroscope }
-spec:
-  selector: { app: pyroscope }
-  ports: [{ name: http, port: 4040, targetPort: http }]
 ---
 # ----------------------------- Alloy ------------------------------------
 # Tails eyebench pod logs via the Kubernetes API and ships them to Loki.
