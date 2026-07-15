@@ -44,7 +44,7 @@ async def recommend(uid: int, limit: int = 10) -> dict:
     counts = {r["product_id"]: r["c"] for r in popular}
     rows = await db.fetch(
         "rec_products",
-        "SELECT id, name, price FROM products WHERE id = ANY($1::int[])",
+        "SELECT id, name, price, description FROM products WHERE id = ANY($1::int[])",
         ids,
     )
 
@@ -54,6 +54,7 @@ async def recommend(uid: int, limit: int = 10) -> dict:
                 "id": r["id"],
                 "name": r["name"],
                 "price": float(r["price"]),
+                "description": r["description"],
                 "score": _score(counts.get(r["id"], 0), float(r["price"])),
             }
             for r in rows
