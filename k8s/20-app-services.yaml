@@ -28,8 +28,8 @@ spec:
             - secretRef: { name: eyebench-secrets }
           ports: [{ name: http, containerPort: 8001 }]
           resources:
-            requests: { cpu: "100m", memory: "128Mi" }
-            limits: { cpu: "100m", memory: "256Mi" }
+            requests: { cpu: "200m", memory: "128Mi" }
+            limits: { cpu: "200m", memory: "256Mi" }
           readinessProbe:
             httpGet: { path: /health, port: http }
             initialDelaySeconds: 3
@@ -70,8 +70,8 @@ spec:
             - secretRef: { name: eyebench-secrets }
           ports: [{ name: http, containerPort: 8002 }]
           resources:
-            requests: { cpu: "100m", memory: "128Mi" }
-            limits: { cpu: "100m", memory: "256Mi" }
+            requests: { cpu: "400m", memory: "128Mi" }
+            limits: { cpu: "400m", memory: "256Mi" }
           readinessProbe:
             httpGet: { path: /health, port: http }
             initialDelaySeconds: 3
