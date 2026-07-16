@@ -7,6 +7,7 @@ import asyncio
 import time
 from typing import Any
 
+import httpx
 from fastapi import Body, HTTPException
 from fastapi.responses import Response
 
@@ -41,6 +42,25 @@ async def _get_featured() -> Any:
         )
         _featured_cache = (time.monotonic(), featured)
         return featured
+
+
+def _upstream_error(target: str, exc: Exception) -> HTTPException:
+    """Turn a downstream failure into the error the client should see.
+
+    A 4xx upstream is a verdict on the caller's own request (unknown id, invalid
+    payload), so it is passed through rather than reported as 502 — otherwise
+    deleting a product that does not exist looks like an outage. Everything else
+    (connect error, timeout, upstream 5xx) is a real upstream failure.
+    """
+    if isinstance(exc, httpx.HTTPStatusError):
+        status = exc.response.status_code
+        if 400 <= status < 500:
+            try:
+                detail = exc.response.json().get("detail", exc.response.text)
+            except ValueError:
+                detail = exc.response.text
+            return HTTPException(status_code=status, detail=detail)
+    return HTTPException(status_code=502, detail=f"{target} upstream failed")
 
 
 async def _startup() -> None:
@@ -84,7 +104,7 @@ async def product(pid: int) -> Response:
             "product", f"{config.PRODUCT_URL}/products/{pid}"
         )
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=502, detail="product upstream failed") from exc
+        raise _upstream_error("product", exc) from exc
     return Response(content=content, media_type=media_type)
 
 
@@ -95,7 +115,27 @@ async def create_product(payload: dict = Body(...)) -> dict:
             "product", f"{config.PRODUCT_URL}/products", json=payload
         )
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=502, detail="product upstream failed") from exc
+        raise _upstream_error("product", exc) from exc
+
+
+@app.put("/products/{pid}")
+async def update_product(pid: int, payload: dict = Body(...)) -> dict:
+    try:
+        return await downstream.put_json(
+            "product", f"{config.PRODUCT_URL}/products/{pid}", json=payload
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise _upstream_error("product", exc) from exc
+
+
+@app.delete("/products/{pid}")
+async def delete_product(pid: int) -> dict:
+    try:
+        return await downstream.delete_json(
+            "product", f"{config.PRODUCT_URL}/products/{pid}"
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise _upstream_error("product", exc) from exc
 
 
 @app.post("/carts/{uid}/items")
@@ -105,4 +145,14 @@ async def add_to_cart(uid: int, payload: dict = Body(...)) -> dict:
             "cart", f"{config.CART_URL}/carts/{uid}/items", json=payload
         )
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=502, detail="cart upstream failed") from exc
+        raise _upstream_error("cart", exc) from exc
+
+
+@app.delete("/carts/{uid}/items/{product_id}")
+async def remove_from_cart(uid: int, product_id: int) -> dict:
+    try:
+        return await downstream.delete_json(
+            "cart", f"{config.CART_URL}/carts/{uid}/items/{product_id}"
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise _upstream_error("cart", exc) from exc

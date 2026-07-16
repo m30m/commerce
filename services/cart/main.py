@@ -1,5 +1,6 @@
 """cart — read/write service; calls product to enrich line items."""
-from fastapi import Body
+import asyncpg
+from fastapi import Body, HTTPException
 
 from common import config
 from common.db import Database
@@ -67,11 +68,42 @@ async def get_cart(uid: int) -> dict:
 async def add_item(uid: int, payload: dict = Body(...)) -> dict:
     product_id = int(payload["product_id"])
     qty = int(payload.get("qty", 1))
-    await db.execute(
-        "cart_add_item",
-        "INSERT INTO cart_items (user_id, product_id, qty) VALUES ($1, $2, $3)",
+    try:
+        await db.execute(
+            "cart_add_item",
+            "INSERT INTO cart_items (user_id, product_id, qty) VALUES ($1, $2, $3)",
+            uid,
+            product_id,
+            qty,
+        )
+    except asyncpg.ForeignKeyViolationError as exc:
+        # cart_items now has FKs onto products/users, so an unknown id is a bad
+        # request rather than the dangling row it used to insert silently.
+        raise HTTPException(
+            status_code=404, detail="product or user not found"
+        ) from exc
+    return {"user_id": uid, "product_id": product_id, "qty": qty, "status": "added"}
+
+
+@app.delete("/carts/{uid}/items/{product_id}")
+async def remove_item(uid: int, product_id: int) -> dict:
+    """Remove a product from a user's cart.
+
+    Nothing stops add_item from inserting the same product twice, so a product
+    can hold several rows in one cart; this clears all of them and reports how
+    many lines went away.
+    """
+    rows = await db.fetch(
+        "cart_remove_item",
+        "DELETE FROM cart_items WHERE user_id = $1 AND product_id = $2 RETURNING id",
         uid,
         product_id,
-        qty,
     )
-    return {"user_id": uid, "product_id": product_id, "qty": qty, "status": "added"}
+    if not rows:
+        raise HTTPException(status_code=404, detail="item not in cart")
+    return {
+        "user_id": uid,
+        "product_id": product_id,
+        "removed": len(rows),
+        "status": "removed",
+    }

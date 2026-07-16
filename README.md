@@ -48,8 +48,15 @@ for 10-year retention.
 Every service logs structured JSON to stdout (see
 `services/common/logging_config.py`): one object per line with `time`, `level`,
 `logger`, `service`, `message` plus structured fields (e.g. `method`, `path`,
-`status`, `duration_ms` on the request access log). This makes queries like
-`{service="cart"} | json | status>=500` work in Grafana.
+`route`, `status`, `duration_ms` on the request access log). This makes queries
+like `{service="cart"} | json | status>=500` work in Grafana.
+
+The access log carries the request path twice on purpose: `path` is the raw URL
+the client asked for (`/products/1001`), so a log line pins down the exact
+request, while `route` is the route template (`/products/{pid}`) and matches the
+`endpoint` label on the metrics — so you can pivot from a RED panel to the logs
+behind it. Only `route` is used as a metric label; the raw path is unbounded and
+would blow up label cardinality.
 
 ## Metrics
 

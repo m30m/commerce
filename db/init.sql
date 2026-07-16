@@ -15,15 +15,20 @@ CREATE TABLE users (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- cart_items references both parents with ON DELETE CASCADE: deleting a product
+-- (or a user) removes the cart lines pointing at it in the same statement, so
+-- the catalog delete path cannot leave orphaned rows behind.
 CREATE TABLE cart_items (
     id         SERIAL PRIMARY KEY,
-    user_id    INTEGER NOT NULL,
-    product_id INTEGER NOT NULL,
+    user_id    INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    product_id INTEGER NOT NULL REFERENCES products (id) ON DELETE CASCADE,
     qty        INTEGER NOT NULL DEFAULT 1,
     added_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Indexed access paths the services rely on.
+-- Indexed access paths the services rely on. The two cart_items indexes also
+-- back the ON DELETE CASCADE lookups above: without an index on the referencing
+-- column, every parent delete seq-scans cart_items.
 CREATE INDEX idx_cart_items_user ON cart_items (user_id);
 CREATE INDEX idx_cart_items_product ON cart_items (product_id);
 CREATE INDEX idx_products_category ON products (category);

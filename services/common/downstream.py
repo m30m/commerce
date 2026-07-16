@@ -86,12 +86,19 @@ class DownstreamClient:
         resp = await self._get(target, url, **kwargs)
         return resp.content, resp.headers.get("content-type", "application/json")
 
-    async def post_json(self, target: str, url: str, json: Any = None, **kwargs: Any) -> Any:
+    async def _write(
+        self, method: str, target: str, url: str, json: Any = None, **kwargs: Any
+    ) -> Any:
+        """Shared body for the write verbs.
+
+        Deliberately not retried, unlike ``_get``: a retry that follows a lost
+        response would replay a write the upstream may already have applied.
+        """
         assert self._connected, "DownstreamClient.connect() not called"
         client = self._client_for(target)
         start = time.perf_counter()
         try:
-            resp = await client.post(url, json=json, **kwargs)
+            resp = await client.request(method, url, json=json, **kwargs)
             DOWNSTREAM_DURATION.labels(target).observe(time.perf_counter() - start)
             DOWNSTREAM_REQUESTS.labels(target, resp.status_code).inc()
             resp.raise_for_status()
@@ -99,3 +106,12 @@ class DownstreamClient:
         except Exception:
             DOWNSTREAM_REQUESTS.labels(target, "error").inc()
             raise
+
+    async def post_json(self, target: str, url: str, json: Any = None, **kwargs: Any) -> Any:
+        return await self._write("POST", target, url, json=json, **kwargs)
+
+    async def put_json(self, target: str, url: str, json: Any = None, **kwargs: Any) -> Any:
+        return await self._write("PUT", target, url, json=json, **kwargs)
+
+    async def delete_json(self, target: str, url: str, **kwargs: Any) -> Any:
+        return await self._write("DELETE", target, url, **kwargs)

@@ -29,6 +29,23 @@ def _row_to_product(row) -> dict:
     return data
 
 
+def _product_fields(payload: dict) -> tuple[str, float, str, str]:
+    """Validate a write payload. Every field is required: the create and update
+    paths both write a complete row."""
+    try:
+        return (
+            str(payload["name"]),
+            float(payload["price"]),
+            str(payload["description"]),
+            str(payload["category"]),
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="name, price, description and category are required",
+        ) from exc
+
+
 @app.get("/products/batch")
 async def get_products_batch(ids: str) -> dict[int, dict]:
     """Look up many products in one call: cache mget for hits, a single DB query
@@ -122,17 +139,7 @@ async def create_product(payload: dict = Body(...)) -> dict:
     The catalog is otherwise read-only here; this write path exists so callers
     can add products without touching Postgres directly.
     """
-    try:
-        name = str(payload["name"])
-        price = float(payload["price"])
-        description = str(payload["description"])
-        category = str(payload["category"])
-    except (KeyError, TypeError, ValueError) as exc:
-        raise HTTPException(
-            status_code=400,
-            detail="name, price, description and category are required",
-        ) from exc
-
+    name, price, description, category = _product_fields(payload)
     row = await db.fetchrow(
         "product_create",
         "INSERT INTO products (name, price, description, category) "
@@ -144,3 +151,45 @@ async def create_product(payload: dict = Body(...)) -> dict:
         category,
     )
     return _row_to_product(row)
+
+
+@app.put("/products/{pid}")
+async def update_product(pid: int, payload: dict = Body(...)) -> dict:
+    """Replace a product and return the updated row."""
+    name, price, description, category = _product_fields(payload)
+    row = await db.fetchrow(
+        "product_update",
+        "UPDATE products SET name = $2, price = $3, description = $4, category = $5 "
+        "WHERE id = $1 "
+        "RETURNING id, name, price, description, category",
+        pid,
+        name,
+        price,
+        description,
+        category,
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="product not found")
+
+    # Invalidate after the commit rather than overwriting the key: a writer that
+    # set the new value could still lose to a reader that missed just before the
+    # UPDATE and lands its stale row afterwards. Dropping the key means the next
+    # reader re-reads Postgres.
+    await cache.delete(f"product:{pid}")
+    return _row_to_product(row)
+
+
+@app.delete("/products/{pid}")
+async def delete_product(pid: int) -> dict:
+    """Delete a product. Cart lines referencing it are removed by the
+    ON DELETE CASCADE on cart_items.product_id, so no orphaned rows survive."""
+    row = await db.fetchrow(
+        "product_delete",
+        "DELETE FROM products WHERE id = $1 RETURNING id",
+        pid,
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="product not found")
+
+    await cache.delete(f"product:{pid}")
+    return {"id": pid, "status": "deleted"}

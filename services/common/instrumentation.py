@@ -68,11 +68,16 @@ class MetricsMiddleware:
             HTTP_REQUESTS.labels(method, endpoint, status).inc()
             if endpoint not in _SKIP_LOG_ENDPOINTS and self._should_log(status):
                 client = scope.get("client")
+                # Logs carry both: "route" is the bounded template that lines up
+                # with the metric labels, "path" is the concrete URL the client
+                # asked for, so a log line identifies the exact request. The raw
+                # path stays out of the metric labels — it is unbounded.
                 self.logger.info(
                     "request",
                     extra={
                         "method": method,
-                        "path": endpoint,
+                        "path": path,
+                        "route": endpoint,
                         "status": status,
                         "duration_ms": round(elapsed * 1000, 2),
                         "client": client[0] if client else None,

@@ -56,3 +56,9 @@ class Cache:
 
     async def set_json(self, key: str, value: Any, ttl: int) -> None:
         await self.client.set(key, json.dumps(value), ex=ttl)
+
+    async def delete(self, key: str) -> None:
+        """Drop a key. Used to invalidate an entry after the underlying row is
+        written, so readers fall through to Postgres instead of serving a stale
+        copy for the rest of the TTL."""
+        await self.client.delete(key)
