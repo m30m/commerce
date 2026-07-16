@@ -29,6 +29,11 @@ DB_POOL_MAX = _int("DB_POOL_MAX", 20)
 # Cache behaviour
 CACHE_TTL = _int("CACHE_TTL", 60)
 
+# Max line items returned by a single cart read. This is the ceiling on how much
+# work one cart costs: the page is fetched, batch-enriched product by product,
+# and serialised, so per-request cost scales with it right up to this bound.
+CART_PAGE_LIMIT = _int("CART_PAGE_LIMIT", 1000)
+
 # Downstream service URLs
 PRODUCT_URL = os.getenv("PRODUCT_URL", "http://product:8001")
 CART_URL = os.getenv("CART_URL", "http://cart:8002")

@@ -28,8 +28,10 @@ app = create_app("cart", startup=_startup, shutdown=_shutdown)
 async def get_cart(uid: int) -> dict:
     rows = await db.fetch(
         "cart_items",
-        "SELECT product_id, qty FROM cart_items WHERE user_id = $1 ORDER BY added_at LIMIT 100",
+        "SELECT product_id, qty FROM cart_items WHERE user_id = $1 "
+        "ORDER BY added_at LIMIT $2",
         uid,
+        config.CART_PAGE_LIMIT,
     )
     if not rows:
         return {"user_id": uid, "items": [], "total": 0.0}
